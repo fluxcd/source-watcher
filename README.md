@@ -8,17 +8,80 @@ Example consumer of the GitOps Toolkit Source APIs.
 
 ## Watch Git repositories
 
-Source code:
-
-* controller [gitrepository_watcher.go](controllers/gitrepository_watcher.go)
-* predicate [gitrepository_predicate.go](controllers/gitrepository_predicate.go)
-
-The `GitRepositoryWatcher` controller does the following:
+The [GitRepositoryWatcher](controllers/gitrepository_watcher.go) controller does the following:
 
 * subscribes to `GitRepository` events
 * detects when the Git revision changes
 * downloads and extracts the source artifact
 * write to stdout the extracted file names
+
+```go
+// GitRepositoryWatcher watches GitRepository objects for revision changes
+type GitRepositoryWatcher struct {
+	client.Client
+	Log    logr.Logger
+	Scheme *runtime.Scheme
+}
+
+// +kubebuilder:rbac:groups=source.fluxcd.io,resources=gitrepositories,verbs=get;list;watch
+// +kubebuilder:rbac:groups=source.fluxcd.io,resources=gitrepositories/status,verbs=get
+
+func (r *GitRepositoryWatcher) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+	// set timeout for the reconciliation
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// get source object
+	var repository sourcev1.GitRepository
+	if err := r.Get(ctx, req.NamespacedName, &repository); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	log := r.Log.WithValues(strings.ToLower(repository.Kind), req.NamespacedName)
+	log.Info("New revision detected", "revision", repository.Status.Artifact.Revision)
+
+	// create tmp dir
+	tmpDir, err := ioutil.TempDir("", repository.Name)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// download and extract artifact
+	summary, err := r.fetchArtifact(ctx, repository, tmpDir)
+	if err != nil {
+		log.Error(err, "unable to fetch artifact")
+		return ctrl.Result{}, err
+	}
+	log.Info(summary)
+
+	// list artifact content
+	files, err := ioutil.ReadDir(tmpDir)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("faild to list files, error: %w", err)
+	}
+
+	// do something with the artifact content
+	for _, f := range files {
+		log.Info("Processing " + f.Name())
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *GitRepositoryWatcher) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&sourcev1.GitRepository{}).
+		WithEventFilter(GitRepositoryRevisionChangePredicate{}).
+		Complete(r)
+}
+```
+
+Source code:
+
+* controller [gitrepository_watcher.go](controllers/gitrepository_watcher.go)
+* predicate [gitrepository_predicate.go](controllers/gitrepository_predicate.go)
+* initialisation [main.go](main.go)
 
 ### Prerequisites
 
