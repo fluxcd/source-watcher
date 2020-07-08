@@ -30,8 +30,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/fluxcd/pkg/untar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1alpha1"
-	"github.com/stefanprodan/source-watcher/pkg/untar"
 )
 
 // GitRepositoryWatcher watches GitRepository objects for revision changes
