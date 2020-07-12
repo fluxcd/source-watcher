@@ -1,17 +1,20 @@
-name: test
+name: retest
 
 on:
   pull_request:
-  push:
-    branches:
-      - master
+    types: [opened]
+  issue_comment:
+    types: [created]
 
 jobs:
   unit:
+    if: contains(github.event.comment.body, '/retest')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Restore Go cache
         uses: actions/cache@v1
         with:
