@@ -5,9 +5,12 @@ on:
   push:
     branches:
       - master
+  issue_comment:
+    types: [created]
 
 jobs:
   unit:
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || contains(github.event.comment.body, '/retest')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
