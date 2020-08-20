@@ -1,4 +1,4 @@
-FROM golang:1.13 as builder
+FROM golang:1.15 as builder
 
 WORKDIR /workspace
 
@@ -11,7 +11,6 @@ RUN go mod download
 
 # copy source code
 COPY main.go main.go
-COPY api/ api/
 COPY controllers/ controllers/
 
 # build
