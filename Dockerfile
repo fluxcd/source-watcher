@@ -1,4 +1,4 @@
-FROM golang:1.15 as builder
+FROM golang:1.15-alpine as builder
 
 WORKDIR /workspace
 
@@ -14,7 +14,7 @@ COPY main.go main.go
 COPY controllers/ controllers/
 
 # build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o source-watcher main.go
+RUN CGO_ENABLED=0 go build -a -o source-watcher main.go
 
 FROM alpine:3.12
 
