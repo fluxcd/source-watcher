@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Flux CD contributors.
+Copyright 2020, 2021 The Flux authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/logger"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1beta1"
-	"github.com/stefanprodan/source-watcher/controllers"
+	"github.com/fluxcd/source-watcher/controllers"
 	// +kubebuilder:scaffold:imports
 )
 

@@ -1,4 +1,4 @@
-module github.com/stefanprodan/source-watcher
+module github.com/fluxcd/source-watcher
 
 go 1.15
 
