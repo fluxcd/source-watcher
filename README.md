@@ -1,6 +1,6 @@
 # source-watcher
 
-[![test](https://github.com/stefanprodan/source-watcher/workflows/test/badge.svg)](https://github.com/stefanprodan/source-watcher/actions)
+[![test](https://github.com/fluxcd/source-watcher/workflows/test/badge.svg)](https://github.com/fluxcd/source-watcher/actions)
 
 Example consumer of the GitOps Toolkit Source APIs.
 
