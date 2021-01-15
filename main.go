@@ -17,9 +17,10 @@ limitations under the License.
 package main
 
 import (
-	"flag"
+	goflag "flag"
 	"os"
 
+	flag "github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -48,7 +49,7 @@ func main() {
 		metricsAddr          string
 		enableLeaderElection bool
 		logLevel             string
-		logJSON              bool
+		logOptions           logger.Options
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
@@ -56,10 +57,14 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&logLevel, "log-level", "info", "Set logging level. Can be debug, info or error.")
-	flag.BoolVar(&logJSON, "log-json", false, "Set logging to JSON format.")
+	{
+		var fs goflag.FlagSet
+		logOptions.BindFlags(&fs)
+		flag.CommandLine.AddGoFlagSet(&fs)
+	}
 	flag.Parse()
 
-	ctrl.SetLogger(logger.NewLogger(logLevel, logJSON))
+	ctrl.SetLogger(logger.NewLogger(logOptions))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
@@ -67,6 +72,7 @@ func main() {
 		Port:               9443,
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "0cf1c86c.fluxcd.io",
+		Logger:             ctrl.Log,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -75,7 +81,6 @@ func main() {
 
 	if err = (&controllers.GitRepositoryWatcher{
 		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("GitRepositoryWatcher"),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitRepositoryWatcher")

@@ -24,42 +24,34 @@ import (
 )
 
 // GitRepositoryRevisionChangePredicate triggers an update event
-// when a Git source revision changes
+// when a GitRepository revision changes.
 type GitRepositoryRevisionChangePredicate struct {
 	predicate.Funcs
 }
 
 func (GitRepositoryRevisionChangePredicate) Update(e event.UpdateEvent) bool {
-	if e.MetaOld == nil || e.MetaNew == nil {
+	if e.ObjectOld == nil || e.ObjectNew == nil {
 		return false
 	}
 
-	oldRepo, ok := e.ObjectOld.(*sourcev1.GitRepository)
+	oldSource, ok := e.ObjectOld.(sourcev1.Source)
 	if !ok {
 		return false
 	}
 
-	newRepo, ok := e.ObjectNew.(*sourcev1.GitRepository)
+	newSource, ok := e.ObjectNew.(sourcev1.Source)
 	if !ok {
 		return false
 	}
 
-	if oldRepo.GetArtifact() == nil && newRepo.GetArtifact() != nil {
+	if oldSource.GetArtifact() == nil && newSource.GetArtifact() != nil {
 		return true
 	}
 
-	if oldRepo.GetArtifact() != nil && newRepo.GetArtifact() != nil &&
-		oldRepo.GetArtifact().Revision != newRepo.GetArtifact().Revision {
+	if oldSource.GetArtifact() != nil && newSource.GetArtifact() != nil &&
+		oldSource.GetArtifact().Revision != newSource.GetArtifact().Revision {
 		return true
 	}
 
-	return false
-}
-
-func (GitRepositoryRevisionChangePredicate) Create(e event.CreateEvent) bool {
-	return false
-}
-
-func (GitRepositoryRevisionChangePredicate) Delete(e event.DeleteEvent) bool {
 	return false
 }

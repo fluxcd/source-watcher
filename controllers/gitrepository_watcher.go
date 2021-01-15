@@ -22,12 +22,11 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/fluxcd/pkg/untar"
@@ -44,10 +43,8 @@ type GitRepositoryWatcher struct {
 // +kubebuilder:rbac:groups=source.fluxcd.io,resources=gitrepositories,verbs=get;list;watch
 // +kubebuilder:rbac:groups=source.fluxcd.io,resources=gitrepositories/status,verbs=get
 
-func (r *GitRepositoryWatcher) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	// set timeout for the reconciliation
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+func (r *GitRepositoryWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := logr.FromContext(ctx)
 
 	// get source object
 	var repository sourcev1.GitRepository
@@ -55,7 +52,6 @@ func (r *GitRepositoryWatcher) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := r.Log.WithValues(strings.ToLower(repository.Kind), req.NamespacedName)
 	log.Info("New revision detected", "revision", repository.Status.Artifact.Revision)
 
 	// create tmp dir
@@ -89,8 +85,7 @@ func (r *GitRepositoryWatcher) Reconcile(req ctrl.Request) (ctrl.Result, error) 
 
 func (r *GitRepositoryWatcher) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&sourcev1.GitRepository{}).
-		WithEventFilter(GitRepositoryRevisionChangePredicate{}).
+		For(&sourcev1.GitRepository{}, builder.WithPredicates(GitRepositoryRevisionChangePredicate{})).
 		Complete(r)
 }
 
@@ -102,7 +97,7 @@ func (r *GitRepositoryWatcher) fetchArtifact(ctx context.Context, repository sou
 	url := repository.Status.Artifact.URL
 
 	// for local run:
-	// kubectl -n gitops-system port-forward svc/source-controller 8080:80
+	// kubectl -n flux-system port-forward svc/source-controller 8080:80
 	// export SOURCE_HOST=localhost:8080
 	if hostname := os.Getenv("SOURCE_HOST"); hostname != "" {
 		url = fmt.Sprintf("http://%s/gitrepository/%s/%s/latest.tar.gz", hostname, repository.Namespace, repository.Name)
