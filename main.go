@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	goflag "flag"
 	"os"
 
 	flag "github.com/spf13/pflag"
@@ -48,7 +47,6 @@ func main() {
 	var (
 		metricsAddr          string
 		enableLeaderElection bool
-		logLevel             string
 		logOptions           logger.Options
 	)
 
@@ -56,12 +54,7 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.StringVar(&logLevel, "log-level", "info", "Set logging level. Can be debug, info or error.")
-	{
-		var fs goflag.FlagSet
-		logOptions.BindFlags(&fs)
-		flag.CommandLine.AddGoFlagSet(&fs)
-	}
+	logOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	ctrl.SetLogger(logger.NewLogger(logOptions))
