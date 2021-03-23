@@ -29,6 +29,16 @@ type GitRepositoryRevisionChangePredicate struct {
 	predicate.Funcs
 }
 
+func (GitRepositoryRevisionChangePredicate) Create(e event.CreateEvent) bool {
+	src, ok := e.Object.(sourcev1.Source)
+
+	if !ok || src.GetArtifact() == nil {
+		return false
+	}
+
+	return true
+}
+
 func (GitRepositoryRevisionChangePredicate) Update(e event.UpdateEvent) bool {
 	if e.ObjectOld == nil || e.ObjectNew == nil {
 		return false
