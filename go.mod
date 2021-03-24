@@ -3,7 +3,7 @@ module github.com/fluxcd/source-watcher
 go 1.15
 
 require (
-	github.com/fluxcd/pkg/runtime v0.8.5
+	github.com/fluxcd/pkg/runtime v0.9.0
 	github.com/fluxcd/pkg/untar v0.0.5
 	github.com/fluxcd/source-controller/api v0.9.1
 	github.com/go-logr/logr v0.3.0
