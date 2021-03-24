@@ -36,7 +36,6 @@ import (
 // GitRepositoryWatcher watches GitRepository objects for revision changes
 type GitRepositoryWatcher struct {
 	client.Client
-	Log    logr.Logger
 	Scheme *runtime.Scheme
 }
 
@@ -72,7 +71,7 @@ func (r *GitRepositoryWatcher) Reconcile(ctx context.Context, req ctrl.Request) 
 	// list artifact content
 	files, err := ioutil.ReadDir(tmpDir)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("faild to list files, error: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to list files, error: %w", err)
 	}
 
 	// do something with the artifact content
