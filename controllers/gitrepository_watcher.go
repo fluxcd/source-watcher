@@ -116,7 +116,7 @@ func (r *GitRepositoryWatcher) fetchArtifact(ctx context.Context, repository sou
 
 	// check response
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("faild to download artifact, status: %s", resp.Status)
+		return "", fmt.Errorf("failed to download artifact, status: %s", resp.Status)
 	}
 
 	// extract
