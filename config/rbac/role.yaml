@@ -7,7 +7,7 @@ metadata:
   name: source-reader
 rules:
 - apiGroups:
-  - source.fluxcd.io
+  - source.toolkit.fluxcd.io
   resources:
   - gitrepositories
   verbs:
@@ -15,7 +15,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - source.fluxcd.io
+  - source.toolkit.fluxcd.io
   resources:
   - gitrepositories/status
   verbs:
