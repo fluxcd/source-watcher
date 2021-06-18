@@ -41,8 +41,8 @@ meeting](https://docs.google.com/document/d/1l_M0om0qUEN_NNiGgpqJ2tvsF2iioHkaARD
 
 Prerequisites:
 * go >= 1.16
-* kubebuilder >= 2.3
-* kustomize >= 3.1
+* kubebuilder >= 3.0
+* kustomize >= 4.0
 
 You can run the unit tests by simply doing
 
