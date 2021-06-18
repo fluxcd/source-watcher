@@ -1,6 +1,6 @@
 module github.com/fluxcd/source-watcher
 
-go 1.15
+go 1.16
 
 require (
 	github.com/fluxcd/pkg/runtime v0.12.0
