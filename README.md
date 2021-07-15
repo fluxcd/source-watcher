@@ -4,7 +4,7 @@
 
 Example consumer of the GitOps Toolkit Source APIs.
 
-![](https://raw.githubusercontent.com/fluxcd/toolkit/main/docs/_files/source-controller.png)
+![](https://raw.githubusercontent.com/fluxcd/website/main/static/img/source-controller.png)
 
 ## Guides
 
