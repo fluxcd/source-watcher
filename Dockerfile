@@ -1,4 +1,4 @@
-FROM golang:1.16-alpine as builder
+FROM golang:1.17-alpine as builder
 
 WORKDIR /workspace
 
@@ -16,7 +16,7 @@ COPY controllers/ controllers/
 # build
 RUN CGO_ENABLED=0 go build -a -o source-watcher main.go
 
-FROM alpine:3.13
+FROM alpine:3.15
 
 RUN apk add --no-cache ca-certificates tini
 
