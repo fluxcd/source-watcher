@@ -23,12 +23,8 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.16.x
-      - name: Setup Kubebuilder
-        uses: fluxcd/pkg/actions/kubebuilder@main
       - name: Run tests
         run: make test
-        env:
-          KUBEBUILDER_ASSETS: ${{ github.workspace }}/kubebuilder/bin
       - name: Check if working tree is dirty
         run: |
           if [[ $(git diff --stat) != '' ]]; then
