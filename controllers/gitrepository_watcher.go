@@ -17,8 +17,12 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -119,11 +123,40 @@ func (r *GitRepositoryWatcher) fetchArtifact(ctx context.Context, repository sou
 		return "", fmt.Errorf("failed to download artifact, status: %s", resp.Status)
 	}
 
+	var buf bytes.Buffer
+
+	// verify checksum matches origin
+	if err := r.verifyArtifact(repository.GetArtifact(), &buf, resp.Body); err != nil {
+		return "", err
+	}
+
 	// extract
-	summary, err := untar.Untar(resp.Body, dir)
+	summary, err := untar.Untar(&buf, dir)
 	if err != nil {
 		return "", fmt.Errorf("faild to untar artifact, error: %w", err)
 	}
 
 	return summary, nil
+}
+
+func (r *GitRepositoryWatcher) verifyArtifact(artifact *sourcev1.Artifact, buf *bytes.Buffer, reader io.Reader) error {
+	hasher := sha256.New()
+
+	// for backwards compatibility with source-controller v0.17.2 and older
+	if len(artifact.Checksum) == 40 {
+		hasher = sha1.New()
+	}
+
+	// compute checksum
+	mw := io.MultiWriter(hasher, buf)
+	if _, err := io.Copy(mw, reader); err != nil {
+		return err
+	}
+
+	if checksum := fmt.Sprintf("%x", hasher.Sum(nil)); checksum != artifact.Checksum {
+		return fmt.Errorf("failed to verify artifact: computed checksum '%s' doesn't match advertised '%s'",
+			checksum, artifact.Checksum)
+	}
+
+	return nil
 }
