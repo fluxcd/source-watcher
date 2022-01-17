@@ -49,8 +49,8 @@ jobs:
         uses: docker/metadata-action@v3
         with:
           images: |
-          fluxcd/${{ env.CONTROLLER }}
-          ghcr.io/fluxcd/${{ env.CONTROLLER }}
+            fluxcd/${{ env.CONTROLLER }}
+            ghcr.io/fluxcd/${{ env.CONTROLLER }}
           tags: |
             type=raw,value={{tag}}
       - name: Docker push
