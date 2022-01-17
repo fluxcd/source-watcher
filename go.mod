@@ -6,7 +6,6 @@ require (
 	github.com/fluxcd/pkg/runtime v0.12.3
 	github.com/fluxcd/pkg/untar v0.1.0
 	github.com/fluxcd/source-controller/api v0.20.1
-	github.com/go-logr/logr v1.2.2
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.23.1
 	k8s.io/client-go v0.23.1
@@ -22,6 +21,7 @@ require (
 	github.com/fluxcd/pkg/apis/acl v0.0.3 // indirect
 	github.com/fluxcd/pkg/apis/meta v0.10.2 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
+	github.com/go-logr/logr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.2.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
