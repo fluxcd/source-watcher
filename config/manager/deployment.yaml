@@ -20,7 +20,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: manager
-          image: ghcr.io/fluxcd/source-watcher
+          image: fluxcd/source-watcher
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

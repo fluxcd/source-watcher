@@ -33,6 +33,7 @@ jobs:
       - uses: docker/setup-buildx-action@v1
       - uses: sigstore/cosign-installer@main
       - uses: anchore/sbom-action/download-syft@v0
+      - uses: fluxcd/pkg/actions/kustomize@main
       - name: Docker login ghcr.io
         uses: docker/login-action@v1
         with:
@@ -68,6 +69,9 @@ jobs:
           COSIGN_EXPERIMENTAL: 1
         run: |
           cosign sign --recursive ghcr.io/fluxcd/${{ env.CONTROLLER }}:${GITHUB_REF/refs\/tags\//}
+      - name: Generate deployment manifest
+        run: |
+          IMG=ghcr.io/fluxcd/${{ env.CONTROLLER }}:${GITHUB_REF/refs\/tags\//} make manifests-release
       - name: GoReleaser publish signed SBOM
         uses: goreleaser/goreleaser-action@v2
         with:
