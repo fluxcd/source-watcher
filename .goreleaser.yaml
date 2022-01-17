@@ -1,7 +1,7 @@
 project_name: source-watcher
 
 builds:
-  skip: true
+  - skip: true
 
 release:
   prerelease: auto
