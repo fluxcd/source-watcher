@@ -12,9 +12,6 @@ ARG TARGETPLATFORM
 
 WORKDIR /workspace
 
-# copy api submodule
-COPY api/ api/
-
 # copy modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
