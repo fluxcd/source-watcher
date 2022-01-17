@@ -3,6 +3,6 @@ kind: Kustomization
 resources:
   - deployment.yaml
 images:
-  - name: source-watcher
-    newName: source-watcher
-    newTag: v0.2.0
+  - name: ghcr.io/fluxcd/source-watcher
+    newName: ghcr.io/fluxcd/source-watcher
+    newTag: v0.10.0

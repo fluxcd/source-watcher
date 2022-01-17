@@ -1,6 +1,5 @@
-
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= fluxcd/source-watcher:latest
 # Produce CRDs that work back to Kubernetes 1.16
 CRD_OPTIONS ?= crd:crdVersions=v1
 
@@ -10,6 +9,11 @@ GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
+
+# Allows for defining additional Docker buildx arguments, e.g. '--push'.
+BUILD_ARGS ?=
+# Architectures to build images for.
+BUILD_PLATFORMS ?= linux/amd64
 
 # Architecture to use envtest with
 ENVTEST_ARCH ?= amd64
@@ -63,8 +67,12 @@ generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 # Build the docker image
-docker-build: test
-	docker build . -t ${IMG}
+docker-build:
+	docker buildx build \
+	--platform=$(BUILD_PLATFORMS) \
+	-t ${IMG} \
+	--load \
+	${BUILD_ARGS} .
 
 # Push the docker image
 docker-push:

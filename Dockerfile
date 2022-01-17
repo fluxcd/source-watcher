@@ -1,6 +1,14 @@
-FROM golang:1.17-alpine as builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine as builder
+
+# Copy the build utilities.
+COPY --from=xx / /
+
+ARG TARGETPLATFORM
 
 WORKDIR /workspace
+
+# copy api submodule
+COPY api/ api/
 
 # copy modules manifests
 COPY go.mod go.mod
@@ -14,7 +22,8 @@ COPY main.go main.go
 COPY controllers/ controllers/
 
 # build
-RUN CGO_ENABLED=0 go build -a -o source-watcher main.go
+ENV CGO_ENABLED=0
+RUN xx-go build -a -o source-watcher main.go
 
 FROM alpine:3.15
 

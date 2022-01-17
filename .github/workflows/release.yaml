@@ -10,6 +10,9 @@ permissions:
   id-token: write # needed for keyless signing
   packages: write # needed for ghcr access
 
+env:
+  CONTROLLER: ${{ github.event.repository.name }}
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -28,6 +31,43 @@ jobs:
             ${{ runner.os }}-go-
       - uses: sigstore/cosign-installer@main
       - uses: anchore/sbom-action/download-syft@v0
+      - uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: fluxcdbot
+          password: ${{ secrets.GHCR_TOKEN }}
+      - name: Prepare
+        id: prep
+        run: |
+          VERSION="${{ github.event.inputs.tag }}-${GITHUB_SHA::8}"
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF/refs\/tags\//}
+          fi
+          echo ::set-output name=BUILD_DATE::$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          echo ::set-output name=VERSION::${VERSION}
+      - name: Publish multi-arch container image
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          builder: ${{ steps.buildx.outputs.name }}
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm/v7,linux/arm64
+          tags: |
+            ghcr.io/fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.VERSION }}
+          labels: |
+            org.opencontainers.image.title=${{ github.event.repository.name }}
+            org.opencontainers.image.description=${{ github.event.repository.description }}
+            org.opencontainers.image.url=${{ github.event.repository.html_url }}
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.prep.outputs.VERSION }}
+            org.opencontainers.image.created=${{ steps.prep.outputs.BUILD_DATE }}
+      - name: Sign multi-arch container image
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          cosign sign ghcr.io/fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.VERSION }}
       - uses: goreleaser/goreleaser-action@v2
         with:
           version: latest
