@@ -17,13 +17,15 @@ release:
     
     Supported architectures: `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
   extra_files:
-    - glob: build/source-watcher.deployment.yaml
+    - glob: build/*.yaml
 
 changelog:
   use: github-native
 
 checksum:
   name_template: 'checksums.txt'
+  extra_files:
+    - glob: build/*.yaml
 
 source:
   enabled: true
