@@ -16,6 +16,8 @@ release:
     ```
     
     Supported architectures: `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
+  extra_files:
+    - glob: build/source-watcher.deployment.yaml
 
 changelog:
   use: github-native

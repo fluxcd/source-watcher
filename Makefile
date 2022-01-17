@@ -78,6 +78,13 @@ docker-build:
 docker-push:
 	docker push ${IMG}
 
+manifests-release:
+	mkdir -p ./build
+	mkdir -p config/release-tmp && cp config/release/* config/release-tmp
+	cd config/release-tmp && kustomize edit set image fluxcd/source-watcher=${IMG}
+	kustomize build config/release-tmp > ./build/source-watcher.deployment.yaml
+	rm -rf config/release-tmp
+
 # Find or download controller-gen
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 .PHONY: controller-gen

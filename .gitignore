@@ -14,3 +14,4 @@
 # Local build output dir
 bin/
 testbin/
+build/
