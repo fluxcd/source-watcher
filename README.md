@@ -4,8 +4,8 @@
 
 Example consumer of the GitOps Toolkit Source APIs.
 
-![](https://raw.githubusercontent.com/fluxcd/website/main/static/img/source-controller.png)
+![Source Controller Overview](https://raw.githubusercontent.com/fluxcd/website/main/static/img/source-controller.png)
 
 ## Guides
 
-* [Watching for source changes](https://toolkit.fluxcd.io/dev-guides/source-watcher/)
+* [Watching for source changes](https://fluxcd.io/docs/gitops-toolkit/source-watcher/)
