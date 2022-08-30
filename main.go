@@ -65,7 +65,7 @@ func main() {
 		MetricsBindAddress: metricsAddr,
 		Port:               9443,
 		LeaderElection:     enableLeaderElection,
-		LeaderElectionID:   "0cf1c86c.fluxcd.io",
+		LeaderElectionID:   "source-watcher.fluxcd.io",
 		Logger:             ctrl.Log,
 	})
 	if err != nil {

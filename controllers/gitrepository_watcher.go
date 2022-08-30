@@ -19,7 +19,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -140,13 +139,6 @@ func (r *GitRepositoryWatcher) fetchArtifact(ctx context.Context, repository sou
 
 func (r *GitRepositoryWatcher) verifyArtifact(artifact *sourcev1.Artifact, buf *bytes.Buffer, reader io.Reader) error {
 	hasher := sha256.New()
-
-	// for backwards compatibility with source-controller v0.17.2 and older
-	if len(artifact.Checksum) == 40 {
-		hasher = sha1.New()
-	}
-
-	// compute checksum
 	mw := io.MultiWriter(hasher, buf)
 	if _, err := io.Copy(mw, reader); err != nil {
 		return err
