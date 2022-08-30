@@ -8,4 +8,4 @@ Example consumer of the GitOps Toolkit Source APIs.
 
 ## Guides
 
-* [Watching for source changes](https://fluxcd.io/docs/gitops-toolkit/source-watcher/)
+* [Watching for source changes](https://fluxcd.io/flux/gitops-toolkit/source-watcher/)
