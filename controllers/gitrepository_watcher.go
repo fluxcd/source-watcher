@@ -22,7 +22,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -56,7 +55,7 @@ func (r *GitRepositoryWatcher) Reconcile(ctx context.Context, req ctrl.Request) 
 	log.Info("New revision detected", "revision", repository.Status.Artifact.Revision)
 
 	// create tmp dir
-	tmpDir, err := ioutil.TempDir("", repository.Name)
+	tmpDir, err := os.MkdirTemp("", repository.Name)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
 	}
@@ -71,7 +70,7 @@ func (r *GitRepositoryWatcher) Reconcile(ctx context.Context, req ctrl.Request) 
 	log.Info(summary)
 
 	// list artifact content
-	files, err := ioutil.ReadDir(tmpDir)
+	files, err := os.ReadDir(tmpDir)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to list files, error: %w", err)
 	}
