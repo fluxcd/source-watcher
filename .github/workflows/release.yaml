@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'image tag prefix'
+        default: 'rc'
+        required: true
 
 permissions:
   contents: write # needed to write releases
@@ -17,43 +23,49 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v3
+      - name: Prepare
+        id: prep
+        run: |
+          VERSION="${{ github.event.inputs.tag }}-${GITHUB_SHA::8}"
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF/refs\/tags\//}
+          fi
+          echo ::set-output name=VERSION::${VERSION}
       - uses: actions/setup-go@v2
         with:
-          go-version: 1.18.x
+          go-version: 1.19.x
       - uses: actions/cache@v2
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      - uses: docker/setup-qemu-action@v1
-      - uses: docker/setup-buildx-action@v1
+      - uses: docker/setup-qemu-action@v2
+      - uses: docker/setup-buildx-action@v2
       - uses: sigstore/cosign-installer@main
       - uses: anchore/sbom-action/download-syft@v0
       - uses: fluxcd/pkg/actions/kustomize@main
       - name: Docker login ghcr.io
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: fluxcdbot
           password: ${{ secrets.GHCR_TOKEN }}
       - name: Docker login docker.io
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           username: fluxcdbot
           password: ${{ secrets.DOCKER_FLUXCD_PASSWORD }}
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v4
         with:
           images: |
             fluxcd/${{ env.CONTROLLER }}
             ghcr.io/fluxcd/${{ env.CONTROLLER }}
           tags: |
-            type=raw,value={{tag}}
+            type=raw,value=${{ steps.prep.outputs.VERSION }}
       - name: Docker push
         uses: docker/build-push-action@v2
         with:
@@ -68,12 +80,11 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: 1
         run: |
-          cosign sign --recursive ghcr.io/fluxcd/${{ env.CONTROLLER }}:${GITHUB_REF/refs\/tags\//}
-      - name: Generate deployment manifest
-        run: |
-          IMG=ghcr.io/fluxcd/${{ env.CONTROLLER }}:${GITHUB_REF/refs\/tags\//} make manifests-release
+          cosign sign fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.VERSION }}
+          cosign sign ghcr.io/fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.VERSION }}
       - name: GoReleaser publish signed SBOM
-        uses: goreleaser/goreleaser-action@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: goreleaser/goreleaser-action@v3
         with:
           version: latest
           args: release --rm-dist --skip-validate
