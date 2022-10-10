@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/fluxcd/pkg/http/fetch v0.1.0
 	github.com/fluxcd/pkg/runtime v0.20.0
-	github.com/fluxcd/pkg/untar v0.2.0
+	github.com/fluxcd/pkg/tar v0.1.0
 	github.com/fluxcd/source-controller/api v0.30.0
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.25.2
@@ -25,7 +25,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.1.0 // indirect
 	github.com/fluxcd/pkg/apis/meta v0.17.0 // indirect
-	github.com/fluxcd/pkg/tar v0.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/zapr v1.2.3 // indirect

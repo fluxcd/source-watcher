@@ -108,8 +108,6 @@ github.com/fluxcd/pkg/runtime v0.20.0/go.mod h1:KVHNQMhccuLTjMDFVCr/SF+4Z554bcMH
 github.com/fluxcd/pkg/tar v0.1.0 h1:ObyUml8NJtGQtz/cRgexd7HU2mQsTmgjz2dtX4xdnng=
 github.com/fluxcd/pkg/tar v0.1.0/go.mod h1:w0/TOC7kwBJhnSJn7TCABkc/I7ib1f2Yz6vOsbLBnhw=
 github.com/fluxcd/pkg/testserver v0.3.0 h1:oyZW6YWHVZR7FRVNu7lN9F5H808TD2jCzBm8CenFoi0=
-github.com/fluxcd/pkg/untar v0.2.0 h1:sJXU+FbJcNUb2ffLJNjeR3hwt3X2loVpOMlCUjyFw6E=
-github.com/fluxcd/pkg/untar v0.2.0/go.mod h1:33AyoWaPpjX/xXpczcfhQh2AkB63TFwiR2YwROtv23E=
 github.com/fluxcd/source-controller/api v0.30.0 h1:rPVPpwXcYG2n0DTRcRagfGDiccvCib5S09K5iMjlpRU=
 github.com/fluxcd/source-controller/api v0.30.0/go.mod h1:UkjAqQ6QAXNNesNQDTArTeiTp+UuhOUIA+JyFhGP/+Q=
 github.com/fsnotify/fsnotify v1.5.4 h1:jRbGcIw6P2Meqdwuo0H1p6JVLbL5DHKAKlYndzMwVZI=
