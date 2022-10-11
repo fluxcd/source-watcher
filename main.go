@@ -1,5 +1,5 @@
 /*
-Copyright 2020, 2021 The Flux authors
+Copyright 2022 The Flux authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ func main() {
 	var (
 		metricsAddr          string
 		enableLeaderElection bool
+		httpRetry            int
 		logOptions           logger.Options
 	)
 
@@ -55,6 +56,7 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.IntVar(&httpRetry, "http-retry", 9, "The maximum number of retries when failing to fetch artifacts over HTTP.")
 	logOptions.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -74,8 +76,8 @@ func main() {
 	}
 
 	if err = (&controllers.GitRepositoryWatcher{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		HttpRetry: httpRetry,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitRepositoryWatcher")
 		os.Exit(1)
