@@ -41,6 +41,7 @@ func (r *GitRepositoryWatcher) SetupWithManager(mgr ctrl.Manager) error {
 	r.artifactFetcher = fetch.NewArchiveFetcher(
 		r.HttpRetry,
 		tar.UnlimitedUntarSize,
+		tar.UnlimitedUntarSize,
 		os.Getenv("SOURCE_CONTROLLER_LOCALHOST"),
 	)
 
