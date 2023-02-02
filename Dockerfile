@@ -27,15 +27,11 @@ COPY controllers/ controllers/
 ENV CGO_ENABLED=0
 RUN xx-go build -a -o source-watcher main.go
 
-FROM alpine:3.16
+FROM alpine:3.17
 
 RUN apk add --no-cache ca-certificates tini
 
 COPY --from=builder /workspace/source-watcher /usr/local/bin/
-
-# Create minimal nsswitch.conf file to prioritize the usage of /etc/hosts over DNS queries.
-# https://github.com/gliderlabs/docker-alpine/issues/367#issuecomment-354316460
-RUN [ ! -e /etc/nsswitch.conf ] && echo 'hosts: files dns' > /etc/nsswitch.conf
 
 RUN addgroup -S controller && adduser -S controller -G controller
 
