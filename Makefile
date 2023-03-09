@@ -87,9 +87,10 @@ manifests-release:
 
 # Find or download controller-gen
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+CONTROLLER_GEN_VERSION ?= v0.11.1
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION))
 
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 ENVTEST_KUBERNETES_VERSION?=latest
