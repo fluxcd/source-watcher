@@ -4,6 +4,6 @@ namespace: source-system
 resources:
   - ../rbac
   - ../manager
-  - github.com/fluxcd/source-controller/config//crd?ref=main
-  - github.com/fluxcd/source-controller/config//manager?ref=main
+  - github.com/fluxcd/source-controller/config/crd?ref=main
+  - github.com/fluxcd/source-controller/config/manager?ref=main
   - namespace.yaml
