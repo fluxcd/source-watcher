@@ -27,7 +27,7 @@ import (
 
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/fluxcd/pkg/tar"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1beta1"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 )
 
 // GitRepositoryWatcher watches GitRepository objects for revision changes
@@ -73,7 +73,7 @@ func (r *GitRepositoryWatcher) Reconcile(ctx context.Context, req ctrl.Request) 
 	defer os.RemoveAll(tmpDir)
 
 	// download and extract artifact
-	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Checksum, tmpDir); err != nil {
+	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
 		log.Error(err, "unable to fetch artifact")
 		return ctrl.Result{}, err
 	}
