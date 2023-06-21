@@ -11,7 +11,7 @@ release:
     Verify and pull the container image:
 
     ```
-    COSIGN_EXPERIMENTAL=1 cosign verify ghcr.io/fluxcd/{{.ProjectName}}:{{.Tag}}
+    cosign verify ghcr.io/fluxcd/{{.ProjectName}}:{{.Tag}}
     docker pull ghcr.io/fluxcd/{{.ProjectName}}:{{.Tag}}
     ```
     
