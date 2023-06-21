@@ -6,13 +6,11 @@ builds:
 release:
   prerelease: auto
   footer: |
-    ## Signed images
+    ## Container images
     
-    Verify and pull the container image:
-
     ```
-    cosign verify ghcr.io/fluxcd/{{.ProjectName}}:{{.Tag}}
-    docker pull ghcr.io/fluxcd/{{.ProjectName}}:{{.Tag}}
+    docker.io/fluxcd/{{.ProjectName}}:{{.Tag}}
+    ghcr.io/fluxcd/{{.ProjectName}}:{{.Tag}}
     ```
     
     Supported architectures: `linux/amd64`, `linux/arm64` and `linux/arm/v7`.

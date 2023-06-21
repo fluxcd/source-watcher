@@ -21,6 +21,8 @@ jobs:
   release:
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
+      image_url: ${{ steps.hash.outputs.image_url }}
+      image_digest: ${{ steps.hash.outputs.image_digest }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # needed to write releases
@@ -72,6 +74,7 @@ jobs:
             type=raw,value=${{ steps.prep.outputs.version }}
       - name: Docker push
         uses: docker/build-push-action@2eb1c1961a95fc15694676618e422e8ba1d63825 # v4.1.1
+        id: build-push
         with:
           sbom: true
           provenance: true
@@ -106,8 +109,13 @@ jobs:
 
           hashes=$(echo $ARTIFACTS | jq --raw-output '.[] | {name, "digest": (.extra.Digest // .extra.Checksum)} | select(.digest) | {digest} + {name} | join("  ") | sub("^sha256:";"")' | base64 -w0)
           echo "hashes=$hashes" >> $GITHUB_OUTPUT
+          
+          image_url=fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.version }}
+          image_digest=${{ steps.build-push.outputs.digest }}
+          echo "image_url=$image_url" >> $GITHUB_OUTPUT
+          echo "image_digest=$image_digest" >> $GITHUB_OUTPUT
 
-  provenance:
+  release-provenance:
     needs: [release]
     permissions:
       actions: read # To read the workflow path.
@@ -117,3 +125,31 @@ jobs:
     with:
       base64-subjects: "${{ needs.release.outputs.hashes }}"
       upload-assets: true
+
+  dockerhub-provenance:
+    needs: [release]
+    permissions:
+      actions: read # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To add assets to the release.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.7.0
+    with:
+      image: ${{ needs.release.outputs.image_url }}
+      digest: ${{ needs.release.outputs.image_digest }}
+      registry-username: fluxcdbot
+    secrets:
+      registry-password: ${{ secrets.DOCKER_FLUXCD_PASSWORD }}
+
+  ghcr-provenance:
+    needs: [release]
+    permissions:
+      actions: read # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To add assets to the release.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.7.0
+    with:
+      image: ghcr.io/${{ needs.release.outputs.image_url }}
+      digest: ${{ needs.release.outputs.image_digest }}
+      registry-username: fluxcdbot
+    secrets:
+      registry-password: ${{ secrets.GHCR_TOKEN }}
