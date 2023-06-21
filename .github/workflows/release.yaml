@@ -129,9 +129,9 @@ jobs:
   dockerhub-provenance:
     needs: [release]
     permissions:
-      actions: read # To read the workflow path.
-      id-token: write # To sign the provenance.
-      contents: write # To add assets to the release.
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.7.0
     with:
       image: ${{ needs.release.outputs.image_url }}
@@ -143,9 +143,9 @@ jobs:
   ghcr-provenance:
     needs: [release]
     permissions:
-      actions: read # To read the workflow path.
-      id-token: write # To sign the provenance.
-      contents: write # To add assets to the release.
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v1.7.0
     with:
       image: ghcr.io/${{ needs.release.outputs.image_url }}
