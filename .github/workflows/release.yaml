@@ -36,7 +36,9 @@ jobs:
       - name: Verify signed release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          if git tag -v ${GITHUB_REF_NAME} | grep 'no signature found'; then
+          if git tag -v ${GITHUB_REF_NAME} 2>&1 | grep 'Signature made'; then
+            echo "PGP signature found for ${GITHUB_REF_NAME} tag."
+          else
             echo "No PGP signature found for tag  ${GITHUB_REF_NAME}. Aborting release process..."
             exit 1
           fi
