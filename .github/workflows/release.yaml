@@ -37,7 +37,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           git -P show ${GITHUB_REF_NAME} | grep -q 'PGP SIGNATURE' || \
-          { echo "No PGP signature found for tag $GITHUB_REF_NAME}. Aborting release process..."; exit 1; }
+          { echo "No PGP signature found for tag ${GITHUB_REF_NAME}. Aborting release process..."; exit 1; }
       - name: Prepare
         id: prep
         run: |
