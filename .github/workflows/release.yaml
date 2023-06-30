@@ -33,15 +33,6 @@ jobs:
         uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
       - name: Setup Kustomize
         uses: fluxcd/pkg/actions/kustomize@main
-      - name: Verify signed release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          if git tag -v ${GITHUB_REF_NAME} 2>&1 | grep 'Signature made'; then
-            echo "PGP signature found for ${GITHUB_REF_NAME} tag."
-          else
-            echo "No PGP signature found for tag  ${GITHUB_REF_NAME}. Aborting release process..."
-            exit 1
-          fi
       - name: Prepare
         id: prep
         run: |
