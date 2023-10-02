@@ -7,9 +7,9 @@ go 1.20
 replace github.com/opencontainers/go-digest => github.com/opencontainers/go-digest v1.0.1-0.20220411205349-bde1400a84be
 
 require (
-	github.com/fluxcd/pkg/http/fetch v0.5.2
+	github.com/fluxcd/pkg/http/fetch v0.6.0
 	github.com/fluxcd/pkg/runtime v0.42.0
-	github.com/fluxcd/pkg/tar v0.2.0
+	github.com/fluxcd/pkg/tar v0.3.0
 	github.com/fluxcd/source-controller/api v1.1.1
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.27.4
@@ -49,7 +49,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/go-digest/blake3 v0.0.0-20230329235805-65fac7b55eb7 // indirect
+	github.com/opencontainers/go-digest/blake3 v0.0.0-20230801144141-122dc6384261 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.16.0 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
