@@ -25,6 +25,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/fluxcd/pkg/runtime/logger"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -63,12 +64,11 @@ func main() {
 	ctrl.SetLogger(logger.NewLogger(logOptions))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:             scheme,
-		MetricsBindAddress: metricsAddr,
-		Port:               9443,
-		LeaderElection:     enableLeaderElection,
-		LeaderElectionID:   "source-watcher.fluxcd.io",
-		Logger:             ctrl.Log,
+		Scheme:           scheme,
+		Metrics:          metricsserver.Options{BindAddress: metricsAddr},
+		LeaderElection:   enableLeaderElection,
+		LeaderElectionID: "source-watcher.fluxcd.io",
+		Logger:           ctrl.Log,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
