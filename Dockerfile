@@ -27,7 +27,7 @@ COPY controllers/ controllers/
 ENV CGO_ENABLED=0
 RUN xx-go build -a -o source-watcher main.go
 
-FROM alpine:3.18
+FROM alpine:3.19
 
 RUN apk add --no-cache ca-certificates tini
 
