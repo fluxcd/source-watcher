@@ -15,10 +15,10 @@ github.com/evanphx/json-patch/v5 v5.7.0 h1:nJqP7uwL84RJInrohHfW0Fx3awjbm8qZeFv0n
 github.com/evanphx/json-patch/v5 v5.7.0/go.mod h1:VNkHZ/282BpEyt/tObQO8s5CMPmYYq14uClGH4abBuQ=
 github.com/fluxcd/pkg/apis/meta v1.2.0 h1:O766PzGAdMdQKybSflGL8oV0+GgCNIkdsxfalRyzeO8=
 github.com/fluxcd/pkg/apis/meta v1.2.0/go.mod h1:fU/Az9AoVyIxC0oI4ihG0NVMNnvrcCzdEym3wxjIQsc=
-github.com/fluxcd/pkg/http/fetch v0.7.0 h1:mfp3+UE8gsELRtcv5jYAu/LjOqHXWvm/HbgxdcGlcW4=
-github.com/fluxcd/pkg/http/fetch v0.7.0/go.mod h1:Us49hjAQ1br8iTPNufAgQgtReAaQZbBzNpbRY/8ryWI=
-github.com/fluxcd/pkg/runtime v0.43.2 h1:xH2BvttUqJ7wS0zjuBETr2pLXG62QY6f0mdxg5UQKio=
-github.com/fluxcd/pkg/runtime v0.43.2/go.mod h1:dhhNV45B3tekg7qPzATFTuWOulvUzMoO1bV+vc2pSts=
+github.com/fluxcd/pkg/http/fetch v0.8.0 h1:GWiX93y6JaoS0Bm2qy0fo2OeY3xTXP8dME/Ce1iEt8A=
+github.com/fluxcd/pkg/http/fetch v0.8.0/go.mod h1:Rj2b8OVDgbPzeLxt+goa9+qDJDAwC7+jNdgyXsaBglQ=
+github.com/fluxcd/pkg/runtime v0.43.3 h1:z6umKKONWvuxy0TWbeDUJOI30FTbS1P7QrK2J+NjLsM=
+github.com/fluxcd/pkg/runtime v0.43.3/go.mod h1:dhhNV45B3tekg7qPzATFTuWOulvUzMoO1bV+vc2pSts=
 github.com/fluxcd/pkg/tar v0.4.0 h1:SuXpfXBIcSJ5R/yqQi2CBxBmV/i/LH0agqNAh2PWBZg=
 github.com/fluxcd/pkg/tar v0.4.0/go.mod h1:SyJBaQvuv2VA/rv4d1OHhCV6R8+9QKc9np193EzNHBc=
 github.com/fluxcd/pkg/testserver v0.5.0 h1:n/Iskk0tXNt2AgIgjz9qeFK/VhEXGfqeazABXZmO2Es=
