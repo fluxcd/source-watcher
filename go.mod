@@ -10,7 +10,7 @@ require (
 	github.com/fluxcd/pkg/http/fetch v0.10.0
 	github.com/fluxcd/pkg/runtime v0.45.0
 	github.com/fluxcd/pkg/tar v0.6.0
-	github.com/fluxcd/source-controller/api v1.2.4
+	github.com/fluxcd/source-controller/api v1.2.5
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
