@@ -38,11 +38,12 @@ type GitRepositoryWatcher struct {
 }
 
 func (r *GitRepositoryWatcher) SetupWithManager(mgr ctrl.Manager) error {
-	r.artifactFetcher = fetch.NewArchiveFetcher(
-		r.HttpRetry,
-		tar.UnlimitedUntarSize,
-		tar.UnlimitedUntarSize,
-		os.Getenv("SOURCE_CONTROLLER_LOCALHOST"),
+	r.artifactFetcher = fetch.New(
+		fetch.WithRetries(r.HttpRetry),
+		fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
+		fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
+		fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
+		fetch.WithLogger(nil),
 	)
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -70,7 +71,13 @@ func (r *GitRepositoryWatcher) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			log.Error(err, "unable to remove temp dir")
+		}
+	}(tmpDir)
 
 	// download and extract artifact
 	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
