@@ -3,7 +3,7 @@ ARG XX_VERSION=1.4.0
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:${XX_VERSION} AS xx
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine as builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
 
 # Copy the build utilities.
 COPY --from=xx / /
