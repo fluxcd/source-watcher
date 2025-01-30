@@ -11,7 +11,7 @@ require (
 	github.com/fluxcd/pkg/runtime v0.49.1
 	github.com/fluxcd/pkg/tar v0.8.1
 	github.com/fluxcd/source-controller/api v1.4.1
-	github.com/spf13/pflag v1.0.5
+	github.com/spf13/pflag v1.0.6
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
 	sigs.k8s.io/controller-runtime v0.19.0
