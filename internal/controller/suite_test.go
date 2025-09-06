@@ -27,8 +27,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	"github.com/fluxcd/pkg/artifact/config"
 	"github.com/fluxcd/pkg/artifact/digest"
@@ -43,7 +45,7 @@ import (
 
 var (
 	controllerName   = "source-watcher"
-	timeout          = 5 * time.Second
+	timeout          = 10 * time.Second
 	testStorage      *storage.Storage
 	testServer       *testserver.ArtifactServer
 	testEnv          *testenv.Environment
@@ -55,6 +57,7 @@ var (
 
 func NewTestScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(s))
 	utilruntime.Must(sourcev1.AddToScheme(s))
 	utilruntime.Must(swapi.AddToScheme(s))
 
@@ -119,6 +122,15 @@ func newTestStorage(s *testserver.HTTPServer) (*storage.Storage, error) {
 		return nil, err
 	}
 	return st, nil
+}
+
+func objToYaml(obj client.Object) string {
+	obj.SetManagedFields(nil)
+	yamlBytes, err := yaml.Marshal(obj)
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+	return fmt.Sprintf("---\n%s", string(yamlBytes))
 }
 
 func getEvents(objName, objNamespace string) []corev1.Event {

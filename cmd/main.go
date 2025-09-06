@@ -136,6 +136,7 @@ func main() {
 	if err = (&controller.ArtifactGeneratorReconciler{
 		ControllerName:            controllerName,
 		Client:                    mgr.GetClient(),
+		APIReader:                 mgr.GetAPIReader(),
 		Scheme:                    mgr.GetScheme(),
 		EventRecorder:             mgr.GetEventRecorderFor(controllerName),
 		Storage:                   storage,

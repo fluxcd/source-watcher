@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,7 +25,14 @@ import (
 	"github.com/fluxcd/pkg/apis/meta"
 )
 
-const ArtifactGeneratorKind = "ArtifactGenerator"
+const (
+	ArtifactGeneratorKind        = "ArtifactGenerator"
+	Finalizer                    = "source.extensions.fluxcd.io/finalizer"
+	ReconcileAnnotation          = "source.extensions.fluxcd.io/reconcile"
+	ReconciliationDisabledReason = "ReconciliationDisabled"
+	EnabledValue                 = "enabled"
+	DisabledValue                = "disabled"
+)
 
 // ArtifactGeneratorSpec defines the desired state of ArtifactGenerator.
 type ArtifactGeneratorSpec struct {
@@ -109,6 +117,10 @@ type ArtifactGeneratorStatus struct {
 	// Conditions holds the conditions for the ArtifactGenerator.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Inventory contains the list of generated ExternalArtifact references.
+	// +optional
+	Inventory []meta.NamespacedObjectKindReference `json:"inventory,omitempty"`
 }
 
 // GetConditions returns the status conditions of the object.
@@ -125,6 +137,17 @@ func (in *ArtifactGenerator) SetConditions(conditions []metav1.Condition) {
 // must be reconciled again.
 func (in *ArtifactGenerator) GetRequeueAfter() time.Duration {
 	return time.Minute
+}
+
+// SetLastHandledReconcileAt sets the last handled reconcile time in the status.
+func (in *ArtifactGenerator) SetLastHandledReconcileAt(value string) {
+	in.Status.LastHandledReconcileAt = value
+}
+
+// IsDisabled returns true if the object has the reconcile annotation set to 'disabled'.
+func (in *ArtifactGenerator) IsDisabled() bool {
+	val, ok := in.GetAnnotations()[ReconcileAnnotation]
+	return ok && strings.ToLower(val) == DisabledValue
 }
 
 // +kubebuilder:object:root=true

@@ -12,12 +12,14 @@ require (
 	github.com/fluxcd/pkg/runtime v0.83.0
 	github.com/fluxcd/pkg/testserver v0.13.0
 	github.com/fluxcd/source-controller/api v1.7.0-rc.3
+	github.com/onsi/gomega v1.38.2
 	github.com/spf13/pflag v1.0.10
 	k8s.io/api v0.34.0
 	k8s.io/apimachinery v0.34.0
 	k8s.io/client-go v0.34.0
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	sigs.k8s.io/controller-runtime v0.22.0
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -125,5 +127,4 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.20.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )
