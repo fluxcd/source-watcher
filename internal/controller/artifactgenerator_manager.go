@@ -17,18 +17,14 @@ limitations under the License.
 package controller
 
 import (
-	"testing"
-	"time"
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	sourcev1beta1 "github.com/fluxcd/source-watcher/api/v1beta1"
 )
 
-func getArtifactGeneratorReconciler(t *testing.T) *ArtifactGeneratorReconciler {
-	return &ArtifactGeneratorReconciler{
-		ControllerName:            controllerName,
-		Client:                    testEnv,
-		Scheme:                    testEnv.Scheme(),
-		EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
-		Storage:                   testStorage,
-		ArtifactFetchRetries:      1,
-		DependencyRequeueInterval: 5 * time.Second,
-	}
+// SetupWithManager sets up the controller with the Manager.
+func (r *ArtifactGeneratorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&sourcev1beta1.ArtifactGenerator{}).
+		Complete(r)
 }

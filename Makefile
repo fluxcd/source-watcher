@@ -41,11 +41,12 @@ test: tidy generate fmt vet manifests install-envtest download-crd-deps
 
 # Build manager binary
 manager: generate fmt vet
-	go build -o bin/manager cmd/main.go
+	go build -o ./bin/manager ./cmd/main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
-	go run ./cmd/main.go
+	@mkdir -p $(REPOSITORY_ROOT)/bin/data
+	go run ./cmd/main.go --storage-adv-addr=:0 --storage-path=$(REPOSITORY_ROOT)/bin/data
 
 # Delete previously downloaded CRDs and record the new version of the source
 # CRDs.

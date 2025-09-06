@@ -7,6 +7,7 @@ go 1.25.0
 replace github.com/opencontainers/go-digest => github.com/opencontainers/go-digest v1.0.1-0.20220411205349-bde1400a84be
 
 require (
+	github.com/fluxcd/pkg/apis/meta v1.21.0
 	github.com/fluxcd/pkg/artifact v0.2.0
 	github.com/fluxcd/pkg/runtime v0.83.0
 	github.com/fluxcd/pkg/testserver v0.13.0
@@ -38,7 +39,6 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/fluxcd/cli-utils v0.36.0-flux.15 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
-	github.com/fluxcd/pkg/apis/meta v1.21.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.7.0 // indirect
 	github.com/fluxcd/pkg/oci v0.55.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.14.0 // indirect

@@ -18,6 +18,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	"github.com/fluxcd/pkg/runtime/probes"
 	flag "github.com/spf13/pflag"
@@ -59,10 +60,7 @@ func init() {
 }
 
 func main() {
-	const (
-		controllerName         = "source-watcher"
-		runtimeNamespaceEnvKey = "RUNTIME_NAMESPACE"
-	)
+	const controllerName = "source-watcher"
 
 	var (
 		metricsAddr          string
@@ -70,6 +68,7 @@ func main() {
 		enableLeaderElection bool
 		concurrent           int
 		httpRetry            int
+		requeueDependency    time.Duration
 		artifactOptions      artcfg.Options
 		clientOptions        client.Options
 		logOptions           logger.Options
@@ -81,7 +80,10 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.IntVar(&httpRetry, "http-retry", 9, "The maximum number of retries when failing to fetch artifacts over HTTP.")
+	flag.IntVar(&httpRetry, "http-retry", 9,
+		"The maximum number of retries when failing to fetch artifacts over HTTP.")
+	flag.DurationVar(&requeueDependency, "requeue-dependency", 5*time.Second,
+		"The interval at which failing dependencies are reevaluated.")
 
 	artifactOptions.BindFlags(flag.CommandLine)
 	clientOptions.BindFlags(flag.CommandLine)
@@ -132,8 +134,13 @@ func main() {
 	}
 
 	if err = (&controller.ArtifactGeneratorReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		ControllerName:            controllerName,
+		Client:                    mgr.GetClient(),
+		Scheme:                    mgr.GetScheme(),
+		EventRecorder:             mgr.GetEventRecorderFor(controllerName),
+		Storage:                   storage,
+		ArtifactFetchRetries:      httpRetry,
+		DependencyRequeueInterval: requeueDependency,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", swapi.ArtifactGeneratorKind)
 		os.Exit(1)
