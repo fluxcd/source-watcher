@@ -15,3 +15,9 @@
 bin/
 testbin/
 build/
+
+# Test manifests generated at build time
+config/crd/bases/ocirepositories.yaml
+config/crd/bases/gitrepositories.yaml
+config/crd/bases/buckets.yaml
+config/crd/bases/externalartifacts.yaml
