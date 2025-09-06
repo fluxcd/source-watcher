@@ -41,12 +41,11 @@ test: tidy generate fmt vet manifests install-envtest download-crd-deps
 
 # Build manager binary
 manager: generate fmt vet
-	go build -o bin/manager main.go
+	go build -o bin/manager cmd/main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
-	go run ./main.go
-
+	go run ./cmd/main.go
 
 # Delete previously downloaded CRDs and record the new version of the source
 # CRDs.
@@ -88,9 +87,9 @@ deploy: manifests
 	cd config/manager && kustomize edit set image source-watcher=${IMG}
 	kustomize build config/default | kubectl apply -f -
 
-# Generate manifests e.g. CRD, RBAC etc.
-manifests: controller-gen
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=source-reader paths="./..." output:crd:artifacts:config=config/crd/bases
+manifests: controller-gen  ## Generate manifests, e.g. CRD, RBAC, etc.
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths="./..." output:crd:artifacts:config="config/crd/bases"
+	cd api; $(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths="./..." output:crd:artifacts:config="../config/crd/bases"
 
 # Run go tidy to cleanup go.mod
 tidy:
@@ -106,7 +105,7 @@ vet:
 
 # Generate code
 generate: controller-gen
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	cd api; $(CONTROLLER_GEN) object:headerFile="../hack/boilerplate.go.txt" paths="./..."
 
 # Build the docker image
 docker-build:

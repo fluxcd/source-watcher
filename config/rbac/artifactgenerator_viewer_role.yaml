@@ -1,32 +1,23 @@
----
+# permissions for end users to view artifactgenerators.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  labels:
+    app.kubernetes.io/name: source-watcher
+    app.kubernetes.io/managed-by: kustomize
+  name: artifactgenerator-viewer-role
 rules:
 - apiGroups:
   - source.extensions.fluxcd.io
   resources:
   - artifactgenerators
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - source.extensions.fluxcd.io
-  resources:
-  - artifactgenerators/finalizers
-  verbs:
-  - update
 - apiGroups:
   - source.extensions.fluxcd.io
   resources:
   - artifactgenerators/status
   verbs:
   - get
-  - patch
-  - update

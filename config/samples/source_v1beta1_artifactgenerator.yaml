@@ -1,0 +1,9 @@
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  labels:
+    app.kubernetes.io/name: source-watcher
+    app.kubernetes.io/managed-by: kustomize
+  name: artifactgenerator-sample
+spec:
+  # TODO(user): Add fields here

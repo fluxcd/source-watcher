@@ -40,6 +40,9 @@ import (
 	"github.com/fluxcd/pkg/runtime/logger"
 	"github.com/fluxcd/pkg/runtime/pprof"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+
+	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	"github.com/fluxcd/source-watcher/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -51,7 +54,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
-
+	utilruntime.Must(swapi.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -128,6 +131,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err = (&controller.ArtifactGeneratorReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", swapi.ArtifactGeneratorKind)
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	go func() {
