@@ -142,7 +142,7 @@ func main() {
 		Storage:                   storage,
 		ArtifactFetchRetries:      httpRetry,
 		DependencyRequeueInterval: requeueDependency,
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", swapi.ArtifactGeneratorKind)
 		os.Exit(1)
 	}

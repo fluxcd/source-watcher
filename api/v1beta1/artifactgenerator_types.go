@@ -136,7 +136,7 @@ func (in *ArtifactGenerator) SetConditions(conditions []metav1.Condition) {
 // GetRequeueAfter returns the duration after which the ArtifactGenerator
 // must be reconciled again.
 func (in *ArtifactGenerator) GetRequeueAfter() time.Duration {
-	return time.Minute
+	return time.Hour
 }
 
 // SetLastHandledReconcileAt sets the last handled reconcile time in the status.
