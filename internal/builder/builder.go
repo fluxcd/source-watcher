@@ -94,10 +94,8 @@ func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
 		return nil, fmt.Errorf("failed to create artifact: %w", err)
 	}
 
-	// If no revision was specified, set it to latest@<digest>.
-	if spec.Revision == "" {
-		artifact.Revision = fmt.Sprintf("latest@%s", artifact.Digest)
-	}
+	// Set the artifact revision to include the digest.
+	artifact.Revision = fmt.Sprintf("latest@%s", artifact.Digest)
 
 	return artifact.DeepCopy(), nil
 }

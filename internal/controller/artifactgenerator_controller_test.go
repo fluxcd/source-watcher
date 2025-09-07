@@ -68,11 +68,12 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// Create the OCIRepository source
+	ociRevision := digest.FromString("test").String()
 	ociFiles := []testserver.File{
 		{Name: "config.json", Body: "{\"version\": \"1.0\", \"env\": \"production\"}"},
 		{Name: "manifest.yaml", Body: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test-config"},
 	}
-	err = applyOCIRepository(objKey, "latest@sha256:def456", ociFiles)
+	err = applyOCIRepository(objKey, ociRevision, ociFiles)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// Initialize the ArtifactGenerator with the finalizer
@@ -137,8 +138,9 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 		}
 	}
 
-	// Update files in the OCIRepository
-	err = applyOCIRepository(objKey, "latest@sha256:tst456", gitFiles)
+	// Update the OCIRepository revision
+	ociRevision = digest.FromString("new-test").String()
+	err = applyOCIRepository(objKey, ociRevision, gitFiles)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// Reconcile to process the updated source
@@ -201,6 +203,25 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	err = testClient.Get(ctx, key, deletedArtifact)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+	// Change the revision to point to the OCIRepository revision
+	obj.Spec.OutputArtifacts[0].Revision = fmt.Sprintf("@%s-oci", obj.Name)
+	err = testClient.Update(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to process the spec change
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Verify that the ExternalArtifact inherited the OCIRepository revision
+	updatedArtifact := &sourcev1.ExternalArtifact{}
+	key = client.ObjectKey{Name: obj.Spec.OutputArtifacts[0].Name, Namespace: obj.Namespace}
+	err = testClient.Get(ctx, key, updatedArtifact)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(updatedArtifact.Status.Artifact).ToNot(BeNil())
+	g.Expect(updatedArtifact.Status.Artifact.Revision).To(Equal(ociRevision))
 
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
@@ -559,7 +580,7 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 			tmpDir := t.TempDir()
 
 			ctx := context.Background()
-			result, err := reconciler.fetchSources(ctx, generator, tmpDir)
+			result, _, err := reconciler.fetchSources(ctx, generator, tmpDir)
 
 			if tt.expectError {
 				if err == nil {

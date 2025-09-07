@@ -79,8 +79,7 @@ func TestBuild(t *testing.T) {
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name:     "test-artifact",
-					Revision: "v1.0.0",
+					Name: "test-artifact",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@source/config.yaml",
@@ -103,8 +102,8 @@ func TestBuild(t *testing.T) {
 				if artifact.Path == "" {
 					t.Error("Expected artifact path to be set")
 				}
-				if artifact.Revision != "v1.0.0" {
-					t.Errorf("Expected revision 'v1.0.0', got '%s'", artifact.Revision)
+				if artifact.Revision == "" {
+					t.Error("Expected revision to be set")
 				}
 				if artifact.URL == "" {
 					t.Error("Expected artifact URL to be set")

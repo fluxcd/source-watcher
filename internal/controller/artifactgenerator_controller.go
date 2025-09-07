@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/artifact/storage"
@@ -127,7 +129,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// Fetch all sources into the tmpDir.
 	// The sources will be placed in subdirectories named after the source alias:
 	// <tmpDir>/<source-alias>/<source-files>
-	localSources, err := r.fetchSources(ctx, obj, tmpDir)
+	localSources, revisions, err := r.fetchSources(ctx, obj, tmpDir)
 	if err != nil {
 		msg := fmt.Sprintf("fetch sources failed: %s", err.Error())
 		conditions.MarkFalse(obj,
@@ -135,7 +137,8 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			meta.ArtifactFailedReason,
 			"%s", msg)
 		r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
-		return ctrl.Result{}, err
+		log.Error(err, "failed to fetch sources, retrying")
+		return ctrl.Result{RequeueAfter: r.DependencyRequeueInterval}, nil
 	}
 
 	// Prepare a slice to hold the references to the created ExternalArtifact objects.
@@ -146,6 +149,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// <storage-root>/<kind>/<namespace>/<name>/<artifact-uuid>.tar.gz
 	artifactBuilder := builder.New(r.Storage)
 	for _, oa := range obj.Spec.OutputArtifacts {
+		// Build the artifact using the local sources.
 		artifact, err := artifactBuilder.Build(&oa, localSources, obj.Namespace, tmpDir)
 		if err != nil {
 			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
@@ -157,10 +161,31 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			return ctrl.Result{}, err
 		}
 
-		// Reconcile the ExternalArtifact object for the output artifact.
+		// Override the revision with the one from the source if specified.
+		// If the source alias is not found, mark the object as Stalled and return a terminal error.
+		if oa.Revision != "" {
+			if rev, ok := revisions[strings.TrimPrefix(oa.Revision, "@")]; ok {
+				artifact.Revision = rev
+			} else {
+				terminalErr := fmt.Errorf("revision %s not found in sources", oa.Revision)
+				conditions.MarkFalse(obj,
+					meta.ReadyCondition,
+					meta.BuildFailedReason,
+					"%s", terminalErr.Error())
+				conditions.MarkStalled(obj,
+					meta.BuildFailedReason,
+					"%s", terminalErr.Error())
+				r.Event(obj, corev1.EventTypeWarning, meta.BuildFailedReason, terminalErr.Error())
+				return ctrl.Result{}, reconcile.TerminalError(terminalErr)
+			}
+		}
+
+		// Reconcile the ExternalArtifact corresponding to the built artifact.
+		// The ExternalArtifact will reference the artifact stored in the storage backend.
+		// If the ExternalArtifact already exists, its status will be updated with the new artifact details.
 		extRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact)
 		if err != nil {
-			msg := fmt.Sprintf("%s apply failed: %s", oa.Name, err.Error())
+			msg := fmt.Sprintf("%s reconcile failed: %s", oa.Name, err.Error())
 			conditions.MarkFalse(obj,
 				meta.ReadyCondition,
 				meta.ReconciliationFailedReason,
@@ -204,9 +229,11 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 // It returns a map of source alias to the absolute path where the source was fetched.
 func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	tmpDir string) (map[string]string, error) {
+	tmpDir string) (dirs map[string]string, revisions map[string]string, err error) {
 	// Map of source alias to local path.
-	result := make(map[string]string)
+	dirs = make(map[string]string)
+	// Map of source alias to revision.
+	revisions = make(map[string]string)
 
 	for _, src := range obj.Spec.Sources {
 		namespacedName := client.ObjectKey{
@@ -226,9 +253,9 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 			err := r.Client.Get(ctx, namespacedName, &repository)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					return result, err
+					return nil, nil, err
 				}
-				return result, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+				return nil, nil, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 			}
 			source = &repository
 		case sourcev1.GitRepositoryKind:
@@ -236,9 +263,9 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 			err := r.Client.Get(ctx, namespacedName, &repository)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					return result, err
+					return nil, nil, err
 				}
-				return result, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+				return nil, nil, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 			}
 			source = &repository
 		case sourcev1.BucketKind:
@@ -246,20 +273,20 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 			err := r.Client.Get(ctx, namespacedName, &bucket)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					return result, err
+					return nil, nil, err
 				}
-				return result, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+				return nil, nil, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 			}
 			source = &bucket
 		default:
-			return result, fmt.Errorf("source `%s` kind '%s' not supported",
+			return nil, nil, fmt.Errorf("source `%s` kind '%s' not supported",
 				src.Name, src.Kind)
 		}
 
 		// Create a dir for the source alias.
 		srcDir := filepath.Join(tmpDir, src.Alias)
 		if err := os.MkdirAll(srcDir, 0o755); err != nil {
-			return result, fmt.Errorf("failed to create source dir: %w", err)
+			return nil, nil, fmt.Errorf("failed to create source dir: %w", err)
 		}
 
 		// Download artifact and extract files to the source alias dir.
@@ -271,13 +298,13 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 			fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
 		)
 		if err := fetcher.Fetch(source.GetArtifact().URL, source.GetArtifact().Digest, srcDir); err != nil {
-			conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
-			return result, err
+			return nil, nil, err
 		}
-		result[src.Alias] = srcDir
+		dirs[src.Alias] = srcDir
+		revisions[src.Alias] = source.GetArtifact().Revision
 	}
 
-	return result, nil
+	return dirs, revisions, nil
 }
 
 // reconcileExternalArtifact ensures the ExternalArtifact object exists and is up to date
