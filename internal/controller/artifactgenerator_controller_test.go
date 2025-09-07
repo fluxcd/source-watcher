@@ -39,7 +39,7 @@ import (
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
 
-func TestArtifactGeneratorReconciler_LifeCycle(t *testing.T) {
+func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -99,21 +99,70 @@ func TestArtifactGeneratorReconciler_LifeCycle(t *testing.T) {
 	g.Expect(obj.Status.Inventory[0].Kind).To(Equal(sourcev1.ExternalArtifactKind))
 	g.Expect(obj.Status.Inventory[1].Kind).To(Equal(sourcev1.ExternalArtifactKind))
 
+	t.Log(objToYaml(obj))
+
 	// Verify ExternalArtifact objects were created
 	inventory := obj.Status.DeepCopy().Inventory
+	gitArtifactDigest := ""
+	ociArtifactDigest := ""
 	for _, inv := range inventory {
 		externalArtifact := &sourcev1.ExternalArtifact{}
 		key := client.ObjectKey{Name: inv.Name, Namespace: inv.Namespace}
 		err = testClient.Get(ctx, key, externalArtifact)
 		g.Expect(err).ToNot(HaveOccurred())
+
+		t.Log(objToYaml(externalArtifact))
+
+		// Verify owner references
 		g.Expect(externalArtifact.OwnerReferences).To(HaveLen(1))
 		g.Expect(externalArtifact.OwnerReferences[0].UID).To(Equal(obj.GetUID()))
 		g.Expect(externalArtifact.OwnerReferences[0].Kind).To(Equal(swapi.ArtifactGeneratorKind))
+
+		// Verify source reference
 		g.Expect(externalArtifact.Spec.SourceRef.Kind).To(Equal(swapi.ArtifactGeneratorKind))
 		g.Expect(externalArtifact.Spec.SourceRef.Name).To(Equal(obj.Name))
+
+		// Verify the status
 		g.Expect(externalArtifact.Status.Artifact).ToNot(BeNil())
 		g.Expect(externalArtifact.Status.Artifact.URL).To(ContainSubstring(testServer.URL()))
 		g.Expect(conditions.IsReady(externalArtifact)).To(BeTrue())
+
+		if inv.Name == fmt.Sprintf("%s-git", obj.Name) {
+			gitArtifactDigest = externalArtifact.Status.Artifact.Digest
+		}
+
+		if inv.Name == fmt.Sprintf("%s-oci", obj.Name) {
+			ociArtifactDigest = externalArtifact.Status.Artifact.Digest
+		}
+	}
+
+	// Update files in the OCIRepository
+	err = applyOCIRepository(objKey, "latest@sha256:tst456", gitFiles)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to process the updated source
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Verify that only the OCI ExternalArtifact was updated
+	for _, inv := range inventory {
+		externalArtifact := &sourcev1.ExternalArtifact{}
+		key := client.ObjectKey{Name: inv.Name, Namespace: inv.Namespace}
+		err = testClient.Get(ctx, key, externalArtifact)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		t.Log(objToYaml(externalArtifact))
+
+		if inv.Name == fmt.Sprintf("%s-git", obj.Name) {
+			g.Expect(externalArtifact.Status.Artifact.Digest).To(Equal(gitArtifactDigest))
+		}
+
+		if inv.Name == fmt.Sprintf("%s-oci", obj.Name) {
+			g.Expect(externalArtifact.Status.Artifact.Digest).ToNot(Equal(ociArtifactDigest))
+			g.Expect(externalArtifact.Status.Artifact.Digest).To(Equal(gitArtifactDigest))
+		}
 	}
 
 	// Delete the object to trigger finalization
@@ -140,6 +189,362 @@ func TestArtifactGeneratorReconciler_LifeCycle(t *testing.T) {
 		err = testClient.Get(ctx, key, externalArtifact)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	}
+}
+
+func TestResourceSetReconciler_Finalize(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Create a namespace
+	ns, err := testEnv.CreateNamespace(ctx, "test")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the ArtifactGenerator object
+	objKey := client.ObjectKey{
+		Name:      "test",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Initialize the object with the finalizer
+	r, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
+
+	// Verify the finalizer was added
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(obj.Finalizers).To(ContainElement(swapi.Finalizer))
+
+	// Verify the object is in reconciling state
+	g.Expect(conditions.IsReconciling(obj)).To(BeTrue())
+	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(meta.ProgressingReason))
+
+	// Delete the object to trigger finalization
+	err = testClient.Delete(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to free resources
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	// Verify the object has been deleted
+	resultFinal := &swapi.ArtifactGenerator{}
+	err = testClient.Get(ctx, objKey, resultFinal)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+}
+
+func TestResourceSetReconciler_Finalize_Disabled(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Create a namespace
+	ns, err := testEnv.CreateNamespace(ctx, "test")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the ArtifactGenerator object
+	objKey := client.ObjectKey{
+		Name:      "test",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	obj.SetAnnotations(map[string]string{
+		swapi.ReconcileAnnotation: swapi.DisabledValue,
+	})
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Initialize the object with the finalizer
+	r, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
+
+	// Verify the finalizer was added
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(obj.Finalizers).To(ContainElement(swapi.Finalizer))
+
+	// Reconcile disabled object
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	// Verify the object is marked as disabled
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(conditions.IsTrue(obj, meta.ReadyCondition)).To(BeTrue())
+	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(swapi.ReconciliationDisabledReason))
+
+	// Delete the object to trigger finalization
+	err = testClient.Delete(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to free resources
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	// Verify the object has been deleted
+	resultFinal := &swapi.ArtifactGenerator{}
+	err = testClient.Get(ctx, objKey, resultFinal)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+}
+
+func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func() (*swapi.ArtifactGenerator, func())
+		expectError bool
+		expectCount int
+	}{
+		{
+			name: "successfully gets git and oci sources",
+			setupFunc: func() (*swapi.ArtifactGenerator, func()) {
+				gitKey := client.ObjectKey{Name: "test-git", Namespace: "default"}
+				ociKey := client.ObjectKey{Name: "test-oci", Namespace: "default"}
+				objKey := client.ObjectKey{Name: "test-generator", Namespace: "default"}
+
+				gitFiles := []testserver.File{
+					{Name: "file1.yaml", Body: "content1"},
+					{Name: "file2.yaml", Body: "content2"},
+				}
+				ociFiles := []testserver.File{
+					{Name: "file3.yaml", Body: "content3"},
+					{Name: "file4.yaml", Body: "content4"},
+				}
+
+				if err := applyGitRepository(gitKey, "main@sha1:abcd", gitFiles); err != nil {
+					t.Fatalf("Failed to apply git repository: %v", err)
+				}
+				if err := applyOCIRepository(ociKey, "latest@sha256:1234", ociFiles); err != nil {
+					t.Fatalf("Failed to apply OCI repository: %v", err)
+				}
+
+				generator := &swapi.ArtifactGenerator{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       swapi.ArtifactGeneratorKind,
+						APIVersion: swapi.GroupVersion.String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      objKey.Name,
+						Namespace: objKey.Namespace,
+					},
+					Spec: swapi.ArtifactGeneratorSpec{
+						Sources: []swapi.SourceReference{
+							{
+								Alias: gitKey.Name,
+								Kind:  sourcev1.GitRepositoryKind,
+								Name:  gitKey.Name,
+							},
+							{
+								Alias: ociKey.Name,
+								Kind:  sourcev1.OCIRepositoryKind,
+								Name:  ociKey.Name,
+							},
+						},
+					},
+				}
+
+				cleanup := func() {
+					testClient.Delete(context.Background(), &sourcev1.GitRepository{
+						ObjectMeta: metav1.ObjectMeta{Name: gitKey.Name, Namespace: gitKey.Namespace},
+					})
+					testClient.Delete(context.Background(), &sourcev1.OCIRepository{
+						ObjectMeta: metav1.ObjectMeta{Name: ociKey.Name, Namespace: ociKey.Namespace},
+					})
+				}
+
+				return generator, cleanup
+			},
+			expectError: false,
+			expectCount: 2,
+		},
+		{
+			name: "fails when git source not found",
+			setupFunc: func() (*swapi.ArtifactGenerator, func()) {
+				gitKey := client.ObjectKey{Name: "nonexistent-git", Namespace: "default"}
+				ociKey := client.ObjectKey{Name: "nonexistent-oci", Namespace: "default"}
+				objKey := client.ObjectKey{Name: "test-generator", Namespace: "default"}
+
+				generator := &swapi.ArtifactGenerator{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       swapi.ArtifactGeneratorKind,
+						APIVersion: swapi.GroupVersion.String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      objKey.Name,
+						Namespace: objKey.Namespace,
+					},
+					Spec: swapi.ArtifactGeneratorSpec{
+						Sources: []swapi.SourceReference{
+							{
+								Alias: gitKey.Name,
+								Kind:  sourcev1.GitRepositoryKind,
+								Name:  gitKey.Name,
+							},
+							{
+								Alias: ociKey.Name,
+								Kind:  sourcev1.OCIRepositoryKind,
+								Name:  ociKey.Name,
+							},
+						},
+					},
+				}
+				return generator, func() {}
+			},
+			expectError: true,
+			expectCount: 0,
+		},
+		{
+			name: "successfully gets single git source",
+			setupFunc: func() (*swapi.ArtifactGenerator, func()) {
+				gitKey := client.ObjectKey{Name: "single-git", Namespace: "default"}
+				objKey := client.ObjectKey{Name: "single-generator", Namespace: "default"}
+
+				gitFiles := []testserver.File{
+					{Name: "config.yaml", Body: "apiVersion: v1\nkind: ConfigMap"},
+				}
+
+				if err := applyGitRepository(gitKey, "main@sha1:xyz123", gitFiles); err != nil {
+					t.Fatalf("Failed to apply git repository: %v", err)
+				}
+
+				generator := &swapi.ArtifactGenerator{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       swapi.ArtifactGeneratorKind,
+						APIVersion: swapi.GroupVersion.String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      objKey.Name,
+						Namespace: objKey.Namespace,
+					},
+					Spec: swapi.ArtifactGeneratorSpec{
+						Sources: []swapi.SourceReference{
+							{
+								Alias: gitKey.Name,
+								Kind:  sourcev1.GitRepositoryKind,
+								Name:  gitKey.Name,
+							},
+						},
+					},
+				}
+
+				cleanup := func() {
+					testClient.Delete(context.Background(), &sourcev1.GitRepository{
+						ObjectMeta: metav1.ObjectMeta{Name: gitKey.Name, Namespace: gitKey.Namespace},
+					})
+				}
+
+				return generator, cleanup
+			},
+			expectError: false,
+			expectCount: 1,
+		},
+		{
+			name: "handles explicit namespace in source reference",
+			setupFunc: func() (*swapi.ArtifactGenerator, func()) {
+				gitKey := client.ObjectKey{Name: "explicit-ns-git", Namespace: "default"}
+				objKey := client.ObjectKey{Name: "explicit-ns-generator", Namespace: "default"}
+
+				gitFiles := []testserver.File{
+					{Name: "explicit-ns.yaml", Body: "explicit namespace content"},
+				}
+
+				if err := applyGitRepository(gitKey, "main@sha1:explicit", gitFiles); err != nil {
+					t.Fatalf("Failed to apply git repository: %v", err)
+				}
+
+				generator := &swapi.ArtifactGenerator{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       swapi.ArtifactGeneratorKind,
+						APIVersion: swapi.GroupVersion.String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      objKey.Name,
+						Namespace: objKey.Namespace,
+					},
+					Spec: swapi.ArtifactGeneratorSpec{
+						Sources: []swapi.SourceReference{
+							{
+								Alias:     gitKey.Name,
+								Kind:      sourcev1.GitRepositoryKind,
+								Name:      gitKey.Name,
+								Namespace: gitKey.Namespace,
+							},
+						},
+					},
+				}
+
+				cleanup := func() {
+					testClient.Delete(context.Background(), &sourcev1.GitRepository{
+						ObjectMeta: metav1.ObjectMeta{Name: gitKey.Name, Namespace: gitKey.Namespace},
+					})
+				}
+
+				return generator, cleanup
+			},
+			expectError: false,
+			expectCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			generator, cleanup := tt.setupFunc()
+			defer cleanup()
+
+			reconciler := getArtifactGeneratorReconciler()
+			tmpDir := t.TempDir()
+
+			ctx := context.Background()
+			result, err := reconciler.fetchSources(ctx, generator, tmpDir)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if len(result) != tt.expectCount {
+					t.Errorf("Expected %d sources, got %d", tt.expectCount, len(result))
+				}
+
+				// Verify that the returned paths exist and correspond to the source aliases
+				for alias, path := range result {
+					if _, err := os.Stat(path); os.IsNotExist(err) {
+						t.Errorf("Expected source path %s to exist for alias %s", path, alias)
+					}
+
+					// Verify the path structure matches expectations
+					expectedPath := tmpDir + "/" + alias
+					if path != expectedPath {
+						t.Errorf("Expected path %s for alias %s, got %s", expectedPath, alias, path)
+					}
+				}
+			}
+		})
 	}
 }
 

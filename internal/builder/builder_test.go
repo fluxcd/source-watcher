@@ -17,43 +17,74 @@ limitations under the License.
 package builder
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/artifact/config"
+	"github.com/fluxcd/pkg/artifact/digest"
+	"github.com/fluxcd/pkg/artifact/storage"
+	"github.com/fluxcd/pkg/testserver"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
 
-func TestApplyCopyOperations(t *testing.T) {
+func TestBuild(t *testing.T) {
+	testServer, err := testserver.NewTempArtifactServer()
+	if err != nil {
+		t.Fatalf("failed to create test server: %v", err)
+	}
+	testServer.Start()
+	defer testServer.Stop()
+
+	testStorage, err := storage.New(&config.Options{
+		StoragePath:              testServer.Root(),
+		StorageAddress:           testServer.URL(),
+		StorageAdvAddress:        testServer.URL(),
+		ArtifactRetentionTTL:     time.Minute,
+		ArtifactRetentionRecords: 2,
+		ArtifactDigestAlgo:       digest.Canonical.String(),
+	})
+	if err != nil {
+		t.Fatalf("failed to create test storage: %v", err)
+	}
+
 	tests := []struct {
 		name         string
-		setupFunc    func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string)
+		setupFunc    func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
 		expectError  bool
-		validateFunc func(t *testing.T, stagingDir string)
+		validateFunc func(t *testing.T, artifact *meta.Artifact, workspace string)
 	}{
 		{
-			name: "copy single file from source to artifact",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
+			name: "build artifact with single file copy",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
-				stagingDir := filepath.Join(tmpDir, "staging")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
 
 				if err := os.MkdirAll(srcDir, 0o755); err != nil {
 					t.Fatalf("Failed to create source dir: %v", err)
 				}
-				if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-					t.Fatalf("Failed to create staging dir: %v", err)
+				if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+					t.Fatalf("Failed to create workspace dir: %v", err)
 				}
 
-				testFile := filepath.Join(srcDir, "test.yaml")
-				if err := os.WriteFile(testFile, []byte("content"), 0o644); err != nil {
+				testFile := filepath.Join(srcDir, "config.yaml")
+				if err := os.WriteFile(testFile, []byte("apiVersion: v1\nkind: ConfigMap"), 0o644); err != nil {
 					t.Fatalf("Failed to create test file: %v", err)
 				}
 
-				operations := []swapi.CopyOperation{
-					{
-						From: "@source/test.yaml",
-						To:   "@artifact/",
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/config.yaml",
+							To:   "@artifact/",
+						},
 					},
 				}
 
@@ -61,158 +92,62 @@ func TestApplyCopyOperations(t *testing.T) {
 					"source": srcDir,
 				}
 
-				return operations, sources, stagingDir
+				return spec, sources, workspaceDir
 			},
 			expectError: false,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				expectedFile := filepath.Join(stagingDir, "test.yaml")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				if artifact == nil {
+					t.Fatal("Expected artifact to be returned")
+				}
+				if artifact.Path == "" {
+					t.Error("Expected artifact path to be set")
+				}
+				if artifact.Revision != "v1.0.0" {
+					t.Errorf("Expected revision 'v1.0.0', got '%s'", artifact.Revision)
+				}
+				if artifact.URL == "" {
+					t.Error("Expected artifact URL to be set")
+				}
+
+				stagingDir := filepath.Join(workspace, "test-artifact")
+				expectedFile := filepath.Join(stagingDir, "config.yaml")
 				if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
-					t.Errorf("Expected file %s to exist", expectedFile)
-				}
-
-				content, err := os.ReadFile(expectedFile)
-				if err != nil {
-					t.Errorf("Failed to read copied file: %v", err)
-				}
-
-				if string(content) != "content" {
-					t.Errorf("Expected content 'content', got '%s'", string(content))
+					t.Errorf("Expected staged file %s to exist", expectedFile)
 				}
 			},
 		},
 		{
-			name: "copy multiple files with glob pattern",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
-				tmpDir := t.TempDir()
-				srcDir := filepath.Join(tmpDir, "source")
-				stagingDir := filepath.Join(tmpDir, "staging")
-
-				if err := os.MkdirAll(srcDir, 0o755); err != nil {
-					t.Fatalf("Failed to create source dir: %v", err)
-				}
-				if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-					t.Fatalf("Failed to create staging dir: %v", err)
-				}
-
-				files := []string{"config.yaml", "deployment.yaml", "service.yaml"}
-				for _, file := range files {
-					if err := os.WriteFile(filepath.Join(srcDir, file), []byte("yaml content"), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", file, err)
-					}
-				}
-
-				operations := []swapi.CopyOperation{
-					{
-						From: "@source/*.yaml",
-						To:   "@artifact/manifests/",
-					},
-				}
-
-				sources := map[string]string{
-					"source": srcDir,
-				}
-
-				return operations, sources, stagingDir
-			},
-			expectError: false,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				expectedFiles := []string{"config.yaml", "deployment.yaml", "service.yaml"}
-				for _, file := range expectedFiles {
-					expectedPath := filepath.Join(stagingDir, "manifests", file)
-					if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
-						t.Errorf("Expected file %s to exist", expectedPath)
-					}
-				}
-			},
-		},
-		{
-			name: "copy directory recursively",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
-				tmpDir := t.TempDir()
-				srcDir := filepath.Join(tmpDir, "source")
-				stagingDir := filepath.Join(tmpDir, "staging")
-
-				if err := os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755); err != nil {
-					t.Fatalf("Failed to create source subdirectory: %v", err)
-				}
-				if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-					t.Fatalf("Failed to create staging dir: %v", err)
-				}
-
-				if err := os.WriteFile(filepath.Join(srcDir, "root.txt"), []byte("root"), 0o644); err != nil {
-					t.Fatalf("Failed to create root file: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(srcDir, "subdir", "nested.txt"), []byte("nested"), 0o644); err != nil {
-					t.Fatalf("Failed to create nested file: %v", err)
-				}
-
-				operations := []swapi.CopyOperation{
-					{
-						From: "@source/**",
-						To:   "@artifact/",
-					},
-				}
-
-				sources := map[string]string{
-					"source": srcDir,
-				}
-
-				return operations, sources, stagingDir
-			},
-			expectError: false,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "root.txt"):             "root",
-					filepath.Join(stagingDir, "subdir", "nested.txt"): "nested",
-				}
-
-				for expectedPath, expectedContent := range expectedFiles {
-					if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
-						t.Errorf("Expected file %s to exist", expectedPath)
-						continue
-					}
-
-					content, err := os.ReadFile(expectedPath)
-					if err != nil {
-						t.Errorf("Failed to read file %s: %v", expectedPath, err)
-						continue
-					}
-
-					if string(content) != expectedContent {
-						t.Errorf("File %s: expected content '%s', got '%s'", expectedPath, expectedContent, string(content))
-					}
-				}
-			},
-		},
-		{
-			name: "multiple copy operations",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
+			name: "build artifact with multiple copy operations",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				gitDir := filepath.Join(tmpDir, "git")
 				ociDir := filepath.Join(tmpDir, "oci")
-				stagingDir := filepath.Join(tmpDir, "staging")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{gitDir, ociDir, stagingDir} {
+				for _, dir := range []string{gitDir, ociDir, workspaceDir} {
 					if err := os.MkdirAll(dir, 0o755); err != nil {
 						t.Fatalf("Failed to create dir %s: %v", dir, err)
 					}
 				}
 
-				if err := os.WriteFile(filepath.Join(gitDir, "app.yaml"), []byte("git content"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(gitDir, "app.yaml"), []byte("apiVersion: apps/v1"), 0o644); err != nil {
 					t.Fatalf("Failed to create git file: %v", err)
 				}
-				if err := os.WriteFile(filepath.Join(ociDir, "config.json"), []byte("oci content"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(ociDir, "config.json"), []byte(`{"version": "1.0"}`), 0o644); err != nil {
 					t.Fatalf("Failed to create oci file: %v", err)
 				}
 
-				operations := []swapi.CopyOperation{
-					{
-						From: "@git/*.yaml",
-						To:   "@artifact/manifests/",
-					},
-					{
-						From: "@oci/*.json",
-						To:   "@artifact/config/",
+				spec := &swapi.OutputArtifact{
+					Name: "multi-source-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@git/app.yaml",
+							To:   "@artifact/manifests/",
+						},
+						{
+							From: "@oci/config.json",
+							To:   "@artifact/config/",
+						},
 					},
 				}
 
@@ -221,13 +156,356 @@ func TestApplyCopyOperations(t *testing.T) {
 					"oci": ociDir,
 				}
 
-				return operations, sources, stagingDir
+				return spec, sources, workspaceDir
 			},
 			expectError: false,
-			validateFunc: func(t *testing.T, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				if artifact == nil {
+					t.Fatal("Expected artifact to be returned")
+				}
+
+				expectedRevision := fmt.Sprintf("latest@%s", artifact.Digest)
+				if artifact.Revision != expectedRevision {
+					t.Errorf("Expected revision '%s', got '%s'", expectedRevision, artifact.Revision)
+				}
+
+				stagingDir := filepath.Join(workspace, "multi-source-artifact")
+				expectedFiles := []string{
+					filepath.Join(stagingDir, "manifests", "app.yaml"),
+					filepath.Join(stagingDir, "config", "config.json"),
+				}
+
+				for _, expectedFile := range expectedFiles {
+					if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+						t.Errorf("Expected staged file %s to exist", expectedFile)
+					}
+				}
+			},
+		},
+		{
+			name: "build artifact with glob patterns",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				if err := os.MkdirAll(srcDir, 0o755); err != nil {
+					t.Fatalf("Failed to create source dir: %v", err)
+				}
+				if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+					t.Fatalf("Failed to create workspace dir: %v", err)
+				}
+
+				yamlFiles := []string{"deployment.yaml", "service.yaml", "configmap.yaml"}
+				for _, file := range yamlFiles {
+					if err := os.WriteFile(filepath.Join(srcDir, file), []byte("apiVersion: v1"), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", file, err)
+					}
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name:     "glob-artifact",
+					Revision: "@source",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/*.yaml",
+							To:   "@artifact/manifests/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				if artifact == nil {
+					t.Fatal("Expected artifact to be returned")
+				}
+
+				stagingDir := filepath.Join(workspace, "glob-artifact")
+				expectedFiles := []string{"deployment.yaml", "service.yaml", "configmap.yaml"}
+				for _, file := range expectedFiles {
+					expectedPath := filepath.Join(stagingDir, "manifests", file)
+					if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+						t.Errorf("Expected staged file %s to exist", expectedPath)
+					}
+				}
+			},
+		},
+		{
+			name: "error when copy operation fails",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+					t.Fatalf("Failed to create workspace dir: %v", err)
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name: "error-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@nonexistent/file.yaml",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": "/nonexistent/path",
+				}
+
+				return spec, sources, workspaceDir
+			},
+			expectError: true,
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				// No validation needed for error case
+			},
+		},
+		{
+			name: "error when staging directory creation fails",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				// Use a non-existent parent directory to cause mkdir failure
+				workspaceDir := "/nonexistent/workspace"
+
+				spec := &swapi.OutputArtifact{
+					Name: "mkdir-error-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/file.yaml",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": "/tmp",
+				}
+
+				return spec, sources, workspaceDir
+			},
+			expectError: true,
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				// No validation needed for error case
+			},
+		},
+		{
+			name: "build artifact with recursive directory copy",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				if err := os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755); err != nil {
+					t.Fatalf("Failed to create source subdirectory: %v", err)
+				}
+				if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+					t.Fatalf("Failed to create workspace dir: %v", err)
+				}
+
+				if err := os.WriteFile(filepath.Join(srcDir, "root.yaml"), []byte("root content"), 0o644); err != nil {
+					t.Fatalf("Failed to create root file: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(srcDir, "subdir", "nested.yaml"), []byte("nested content"), 0o644); err != nil {
+					t.Fatalf("Failed to create nested file: %v", err)
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name: "recursive-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/**",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				if artifact == nil {
+					t.Fatal("Expected artifact to be returned")
+				}
+
+				stagingDir := filepath.Join(workspace, "recursive-artifact")
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "manifests", "app.yaml"): "git content",
-					filepath.Join(stagingDir, "config", "config.json"): "oci content",
+					filepath.Join(stagingDir, "root.yaml"):             "root content",
+					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested content",
+				}
+
+				for expectedPath, expectedContent := range expectedFiles {
+					if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+						t.Errorf("Expected staged file %s to exist", expectedPath)
+						continue
+					}
+
+					content, err := os.ReadFile(expectedPath)
+					if err != nil {
+						t.Errorf("Failed to read staged file %s: %v", expectedPath, err)
+						continue
+					}
+
+					if string(content) != expectedContent {
+						t.Errorf("File %s: expected content '%s', got '%s'", expectedPath, expectedContent, string(content))
+					}
+				}
+			},
+		},
+		{
+			name: "copy operations overwrite existing files",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				src1Dir := filepath.Join(tmpDir, "source1")
+				src2Dir := filepath.Join(tmpDir, "source2")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				for _, dir := range []string{src1Dir, src2Dir, workspaceDir} {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatalf("Failed to create dir %s: %v", dir, err)
+					}
+				}
+
+				// Create the same file in both sources with different content
+				if err := os.WriteFile(filepath.Join(src1Dir, "config.yaml"), []byte("original content"), 0o644); err != nil {
+					t.Fatalf("Failed to create source1 file: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(src2Dir, "config.yaml"), []byte("overwritten content"), 0o644); err != nil {
+					t.Fatalf("Failed to create source2 file: %v", err)
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name: "overwrite-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source1/config.yaml",
+							To:   "@artifact/",
+						},
+						{
+							// This should overwrite the file from source1
+							From: "@source2/config.yaml",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source1": src1Dir,
+					"source2": src2Dir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				if artifact == nil {
+					t.Fatal("Expected artifact to be returned")
+				}
+
+				stagingDir := filepath.Join(workspace, "overwrite-artifact")
+				configFile := filepath.Join(stagingDir, "config.yaml")
+
+				if _, err := os.Stat(configFile); os.IsNotExist(err) {
+					t.Errorf("Expected file %s to exist", configFile)
+					return
+				}
+
+				content, err := os.ReadFile(configFile)
+				if err != nil {
+					t.Errorf("Failed to read file %s: %v", configFile, err)
+					return
+				}
+
+				// Verify that the file contains content from source2 (the later operation)
+				expectedContent := "overwritten content"
+				if string(content) != expectedContent {
+					t.Errorf("Expected file content '%s', got '%s'", expectedContent, string(content))
+				}
+			},
+		},
+		{
+			name: "copy operations overwrite entire subdirectories",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				src1Dir := filepath.Join(tmpDir, "source1")
+				src2Dir := filepath.Join(tmpDir, "source2")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				// Create subdirectories in both sources
+				for _, dir := range []string{
+					filepath.Join(src1Dir, "config"),
+					filepath.Join(src2Dir, "config"),
+					workspaceDir,
+				} {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatalf("Failed to create dir %s: %v", dir, err)
+					}
+				}
+
+				// Create files in source1/config/
+				if err := os.WriteFile(filepath.Join(src1Dir, "config", "app.yaml"), []byte("source1 app config"), 0o644); err != nil {
+					t.Fatalf("Failed to create source1 config file: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(src1Dir, "config", "database.yaml"), []byte("source1 database config"), 0o644); err != nil {
+					t.Fatalf("Failed to create source1 database file: %v", err)
+				}
+
+				// Create different files in source2/config/ (some overlapping, some new)
+				if err := os.WriteFile(filepath.Join(src2Dir, "config", "app.yaml"), []byte("source2 app config - OVERWRITTEN"), 0o644); err != nil {
+					t.Fatalf("Failed to create source2 app file: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(src2Dir, "config", "network.yaml"), []byte("source2 network config - NEW"), 0o644); err != nil {
+					t.Fatalf("Failed to create source2 network file: %v", err)
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name: "subdir-overwrite-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							// Copy entire config directory from source1
+							From: "@source1/**",
+							To:   "@artifact/",
+						},
+						{
+							// Copy entire config directory from source2 - should merge/overwrite
+							From: "@source2/**",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source1": src1Dir,
+					"source2": src2Dir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+				if artifact == nil {
+					t.Fatal("Expected artifact to be returned")
+				}
+
+				stagingDir := filepath.Join(workspace, "subdir-overwrite-artifact")
+
+				// Verify expected file contents after merge/overwrite
+				expectedFiles := map[string]string{
+					// app.yaml should be overwritten by source2
+					filepath.Join(stagingDir, "config", "app.yaml"): "source2 app config - OVERWRITTEN",
+					// database.yaml should remain from source1 (not overwritten since source2 doesn't have it)
+					filepath.Join(stagingDir, "config", "database.yaml"): "source1 database config",
+					// network.yaml should be new from source2
+					filepath.Join(stagingDir, "config", "network.yaml"): "source2 network config - NEW",
 				}
 
 				for expectedPath, expectedContent := range expectedFiles {
@@ -248,135 +526,14 @@ func TestApplyCopyOperations(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "error when source alias not found",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
-				tmpDir := t.TempDir()
-				stagingDir := filepath.Join(tmpDir, "staging")
-
-				if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-					t.Fatalf("Failed to create staging dir: %v", err)
-				}
-
-				operations := []swapi.CopyOperation{
-					{
-						From: "@nonexistent/file.txt",
-						To:   "@artifact/file.txt",
-					},
-				}
-
-				sources := map[string]string{
-					"source": "/some/path",
-				}
-
-				return operations, sources, stagingDir
-			},
-			expectError: true,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				// No validation needed for error case
-			},
-		},
-		{
-			name: "error when no files match pattern",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
-				tmpDir := t.TempDir()
-				srcDir := filepath.Join(tmpDir, "source")
-				stagingDir := filepath.Join(tmpDir, "staging")
-
-				for _, dir := range []string{srcDir, stagingDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				operations := []swapi.CopyOperation{
-					{
-						From: "@source/*.nonexistent",
-						To:   "@artifact/",
-					},
-				}
-
-				sources := map[string]string{
-					"source": srcDir,
-				}
-
-				return operations, sources, stagingDir
-			},
-			expectError: true,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				// No validation needed for error case
-			},
-		},
-		{
-			name: "error with invalid source format",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
-				tmpDir := t.TempDir()
-				stagingDir := filepath.Join(tmpDir, "staging")
-
-				if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-					t.Fatalf("Failed to create staging dir: %v", err)
-				}
-
-				operations := []swapi.CopyOperation{
-					{
-						From: "invalid-source-format",
-						To:   "@artifact/file.txt",
-					},
-				}
-
-				sources := map[string]string{
-					"source": "/some/path",
-				}
-
-				return operations, sources, stagingDir
-			},
-			expectError: true,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				// No validation needed for error case
-			},
-		},
-		{
-			name: "error with invalid destination format",
-			setupFunc: func(t *testing.T) ([]swapi.CopyOperation, map[string]string, string) {
-				tmpDir := t.TempDir()
-				srcDir := filepath.Join(tmpDir, "source")
-				stagingDir := filepath.Join(tmpDir, "staging")
-
-				for _, dir := range []string{srcDir, stagingDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				if err := os.WriteFile(filepath.Join(srcDir, "test.txt"), []byte("content"), 0o644); err != nil {
-					t.Fatalf("Failed to create test file: %v", err)
-				}
-
-				operations := []swapi.CopyOperation{
-					{
-						From: "@source/test.txt",
-						To:   "invalid-destination-format",
-					},
-				}
-
-				sources := map[string]string{
-					"source": srcDir,
-				}
-
-				return operations, sources, stagingDir
-			},
-			expectError: true,
-			validateFunc: func(t *testing.T, stagingDir string) {
-				// No validation needed for error case
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			operations, sources, stagingDir := tt.setupFunc(t)
+			testBuilder := New(testStorage)
+			spec, sources, workspace := tt.setupFunc(t)
 
-			err := ApplyCopyOperations(operations, sources, stagingDir)
+			artifact, err := testBuilder.Build(spec, sources, "test-namespace", workspace)
 
 			if tt.expectError {
 				if err == nil {
@@ -385,8 +542,9 @@ func TestApplyCopyOperations(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Errorf("Unexpected error: %v", err)
+				} else {
+					tt.validateFunc(t, artifact, workspace)
 				}
-				tt.validateFunc(t, stagingDir)
 			}
 		})
 	}

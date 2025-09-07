@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -126,9 +125,9 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	}()
 
 	// Fetch all sources into the tmpDir.
-	// The sources will be placed in subdirectories named after the source alias.
-	// e.g. <tmpDir>/<source-alias>/<source-files>
-	localSources, err := r.getSources(ctx, obj, tmpDir)
+	// The sources will be placed in subdirectories named after the source alias:
+	// <tmpDir>/<source-alias>/<source-files>
+	localSources, err := r.fetchSources(ctx, obj, tmpDir)
 	if err != nil {
 		msg := fmt.Sprintf("fetch sources failed: %s", err.Error())
 		conditions.MarkFalse(obj,
@@ -139,11 +138,15 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		return ctrl.Result{}, err
 	}
 
+	// Prepare a slice to hold the references to the created ExternalArtifact objects.
 	extRefs := make([]meta.NamespacedObjectKindReference, 0, len(obj.Spec.OutputArtifacts))
 
-	// Build the output artifacts.
+	// Build the artifacts and reconcile the ExternalArtifact objects.
+	// The artifacts will be stored in the storage under the following path:
+	// <storage-root>/<kind>/<namespace>/<name>/<artifact-uuid>.tar.gz
+	artifactBuilder := builder.New(r.Storage)
 	for _, oa := range obj.Spec.OutputArtifacts {
-		artifact, err := r.buildArtifact(obj, &oa, localSources, tmpDir)
+		artifact, err := artifactBuilder.Build(&oa, localSources, obj.Namespace, tmpDir)
 		if err != nil {
 			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
 			conditions.MarkFalse(obj,
@@ -182,10 +185,10 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
 }
 
-// getSources fetches the sources defined in the ArtifactGenerator spec
+// fetchSources fetches the sources defined in the ArtifactGenerator spec
 // into the provided tmpDir under a subdirectory named after the source alias.
 // It returns a map of source alias to the absolute path where the source was fetched.
-func (r *ArtifactGeneratorReconciler) getSources(ctx context.Context,
+func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	tmpDir string) (map[string]string, error) {
 	// Map of source alias to local path.
@@ -261,50 +264,6 @@ func (r *ArtifactGeneratorReconciler) getSources(ctx context.Context,
 	}
 
 	return result, nil
-}
-
-// buildArtifact runs the copy operations and creates the tarball in the storage backend.
-func (r *ArtifactGeneratorReconciler) buildArtifact(obj *swapi.ArtifactGenerator,
-	oa *swapi.OutputArtifact,
-	source map[string]string,
-	tmpDir string) (*meta.Artifact, error) {
-	// Initialize the Artifact object in the storage backend.
-	artifact := r.Storage.NewArtifactFor(
-		swapi.ArtifactGeneratorKind,
-		&metav1.ObjectMeta{
-			Name:      oa.Name,
-			Namespace: obj.Namespace,
-		},
-		oa.Revision,
-		fmt.Sprintf("%s.tar.gz", uuid.NewString()),
-	)
-
-	// Create a dir to stage the artifact files.
-	stagingDir := filepath.Join(tmpDir, oa.Name)
-	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create staging dir: %w", err)
-	}
-
-	if err := builder.ApplyCopyOperations(oa.Copy, source, stagingDir); err != nil {
-		return nil, fmt.Errorf("failed to apply copy operations: %w", err)
-	}
-
-	// Create the artifact directory in storage.
-	if err := r.Storage.MkdirAll(artifact); err != nil {
-		return nil, fmt.Errorf("failed to create artifact directory: %w", err)
-	}
-
-	// Create the artifact tarball from the staging dir.
-	if err := r.Storage.Archive(&artifact, stagingDir, storage.SourceIgnoreFilter(nil, nil)); err != nil {
-		return nil, fmt.Errorf("failed to create artifact: %w", err)
-	}
-
-	// If no revision was specified, set it to latest@<digest>.
-	if oa.Revision == "" {
-		artifact.Revision = fmt.Sprintf("latest@%s", artifact.Digest)
-	}
-
-	return artifact.DeepCopy(), nil
 }
 
 // reconcileExternalArtifact ensures the ExternalArtifact object exists and is up to date

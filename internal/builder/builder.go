@@ -22,11 +22,79 @@ import (
 	"path/filepath"
 	"strings"
 
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	"github.com/google/uuid"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/artifact/storage"
+
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
 
-// ApplyCopyOperations applies a list of copy operations from sources to a staging directory.
-func ApplyCopyOperations(operations []swapi.CopyOperation, sources map[string]string, stagingDir string) error {
+// ArtifactBuilder is responsible for building and storing artifacts
+// based on a given specification and source files.
+type ArtifactBuilder struct {
+	Storage *storage.Storage
+}
+
+// New creates a new ArtifactBuilder with the given storage backend.
+func New(storage *storage.Storage) *ArtifactBuilder {
+	return &ArtifactBuilder{
+		Storage: storage,
+	}
+}
+
+// Build creates an artifact from the given specification and sources.
+// It stages the files in a temporary directory within the provided workspace,
+// applies the copy operations, and then archives the staged files into the
+// artifact storage. The resulting artifact metadata is returned.
+// The artifact archive is stored under the following path:
+// <storage-root>/<kind>/<namespace>/<name>/<artifact-uuid>.tar.gz
+func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
+	sources map[string]string,
+	namespace string,
+	workspace string) (*meta.Artifact, error) {
+	// Initialize the Artifact object in the storage backend.
+	artifact := r.Storage.NewArtifactFor(
+		sourcev1.ExternalArtifactKind,
+		&metav1.ObjectMeta{
+			Name:      spec.Name,
+			Namespace: namespace,
+		},
+		spec.Revision,
+		fmt.Sprintf("%s.tar.gz", uuid.NewString()),
+	)
+
+	// Create a dir to stage the artifact files.
+	stagingDir := filepath.Join(workspace, spec.Name)
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create staging dir: %w", err)
+	}
+
+	if err := applyCopyOperations(spec.Copy, sources, stagingDir); err != nil {
+		return nil, fmt.Errorf("failed to apply copy operations: %w", err)
+	}
+
+	// Create the artifact directory in storage.
+	if err := r.Storage.MkdirAll(artifact); err != nil {
+		return nil, fmt.Errorf("failed to create artifact directory: %w", err)
+	}
+
+	// Create the artifact tarball from the staging dir.
+	if err := r.Storage.Archive(&artifact, stagingDir, storage.SourceIgnoreFilter(nil, nil)); err != nil {
+		return nil, fmt.Errorf("failed to create artifact: %w", err)
+	}
+
+	// If no revision was specified, set it to latest@<digest>.
+	if spec.Revision == "" {
+		artifact.Revision = fmt.Sprintf("latest@%s", artifact.Digest)
+	}
+
+	return artifact.DeepCopy(), nil
+}
+
+func applyCopyOperations(operations []swapi.CopyOperation, sources map[string]string, stagingDir string) error {
 	for _, op := range operations {
 		if err := applyCopyOperation(op, sources, stagingDir); err != nil {
 			return fmt.Errorf("failed to apply copy operation from '%s' to '%s': %w", op.From, op.To, err)
