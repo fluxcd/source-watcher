@@ -93,7 +93,7 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Add the finalizer if it does not exist.
 	if !controllerutil.ContainsFinalizer(obj, swapi.Finalizer) {
 		log.Info("Adding finalizer", "finalizer", swapi.Finalizer)
-		r.initializeObjectStatus(obj)
+		r.addFinalizer(obj)
 		return ctrl.Result{RequeueAfter: time.Millisecond}, nil
 	}
 
@@ -151,9 +151,9 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
 			conditions.MarkFalse(obj,
 				meta.ReadyCondition,
-				meta.ArtifactFailedReason,
+				meta.BuildFailedReason,
 				"%s", msg)
-			r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
+			r.Event(obj, corev1.EventTypeWarning, meta.BuildFailedReason, msg)
 			return ctrl.Result{}, err
 		}
 
@@ -163,15 +163,18 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			msg := fmt.Sprintf("%s apply failed: %s", oa.Name, err.Error())
 			conditions.MarkFalse(obj,
 				meta.ReadyCondition,
-				meta.ArtifactFailedReason,
+				meta.ReconciliationFailedReason,
 				"%s", msg)
-			r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
+			r.Event(obj, corev1.EventTypeWarning, meta.ReconciliationFailedReason, msg)
 			return ctrl.Result{}, err
 		}
 		extRefs = append(extRefs, *extRef)
 	}
 
-	// TODO: Clean up old ExternalArtifact objects that are no longer in status.Inventory.
+	// TODO: Clean up old ExternalArtifact objects by comparing status.Inventory with extRefs.
+	// The old ExternalArtifact objects can be identified by their absence in extRefs.
+	// The cleanup implies deleting the ExternalArtifact objects that are no longer referenced
+	// and removing their artifacts from the storage.
 
 	// Update the status with the list of ExternalArtifact references.
 	obj.Status.Inventory = extRefs
