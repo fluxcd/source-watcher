@@ -27,6 +27,7 @@ import (
 	"github.com/fluxcd/pkg/artifact/config"
 	"github.com/fluxcd/pkg/artifact/digest"
 	"github.com/fluxcd/pkg/artifact/storage"
+	"github.com/fluxcd/pkg/tar"
 	"github.com/fluxcd/pkg/testserver"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -109,11 +110,27 @@ func TestBuild(t *testing.T) {
 					t.Error("Expected artifact URL to be set")
 				}
 
+				// Verify staging directory files and tar.gz archive contents
 				stagingDir := filepath.Join(workspace, "test-artifact")
-				expectedFile := filepath.Join(stagingDir, "config.yaml")
-				if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
-					t.Errorf("Expected staged file %s to exist", expectedFile)
+				expectedFiles := map[string]string{
+					filepath.Join(stagingDir, "config.yaml"): "apiVersion: v1\nkind: ConfigMap",
 				}
+
+				for expectedFile, expectedContent := range expectedFiles {
+					if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+						t.Errorf("Expected staged file %s to exist", expectedFile)
+					}
+
+					// Also verify content matches
+					content, err := os.ReadFile(expectedFile)
+					if err != nil {
+						t.Errorf("Failed to read staged file %s: %v", expectedFile, err)
+					} else if string(content) != expectedContent {
+						t.Errorf("Staged file %s: expected content '%s', got '%s'", expectedFile, expectedContent, string(content))
+					}
+				}
+
+				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -169,17 +186,28 @@ func TestBuild(t *testing.T) {
 					t.Errorf("Expected revision '%s', got '%s'", expectedRevision, artifact.Revision)
 				}
 
+				// Verify staging directory files and tar.gz archive contents
 				stagingDir := filepath.Join(workspace, "multi-source-artifact")
-				expectedFiles := []string{
-					filepath.Join(stagingDir, "manifests", "app.yaml"),
-					filepath.Join(stagingDir, "config", "config.json"),
+				expectedFiles := map[string]string{
+					filepath.Join(stagingDir, "manifests", "app.yaml"): "apiVersion: apps/v1",
+					filepath.Join(stagingDir, "config", "config.json"): `{"version": "1.0"}`,
 				}
 
-				for _, expectedFile := range expectedFiles {
+				for expectedFile, expectedContent := range expectedFiles {
 					if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
 						t.Errorf("Expected staged file %s to exist", expectedFile)
 					}
+
+					// Also verify content matches
+					content, err := os.ReadFile(expectedFile)
+					if err != nil {
+						t.Errorf("Failed to read staged file %s: %v", expectedFile, err)
+					} else if string(content) != expectedContent {
+						t.Errorf("Staged file %s: expected content '%s', got '%s'", expectedFile, expectedContent, string(content))
+					}
 				}
+
+				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -226,14 +254,29 @@ func TestBuild(t *testing.T) {
 					t.Fatal("Expected artifact to be returned")
 				}
 
+				// Verify staging directory files and tar.gz archive contents
 				stagingDir := filepath.Join(workspace, "glob-artifact")
-				expectedFiles := []string{"deployment.yaml", "service.yaml", "configmap.yaml"}
-				for _, file := range expectedFiles {
-					expectedPath := filepath.Join(stagingDir, "manifests", file)
-					if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
-						t.Errorf("Expected staged file %s to exist", expectedPath)
+				expectedFiles := map[string]string{
+					filepath.Join(stagingDir, "manifests", "deployment.yaml"): "apiVersion: v1",
+					filepath.Join(stagingDir, "manifests", "service.yaml"):    "apiVersion: v1",
+					filepath.Join(stagingDir, "manifests", "configmap.yaml"):  "apiVersion: v1",
+				}
+
+				for expectedFile, expectedContent := range expectedFiles {
+					if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+						t.Errorf("Expected staged file %s to exist", expectedFile)
+					}
+
+					// Also verify content matches
+					content, err := os.ReadFile(expectedFile)
+					if err != nil {
+						t.Errorf("Failed to read staged file %s: %v", expectedFile, err)
+					} else if string(content) != expectedContent {
+						t.Errorf("Staged file %s: expected content '%s', got '%s'", expectedFile, expectedContent, string(content))
 					}
 				}
+
+				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -337,6 +380,7 @@ func TestBuild(t *testing.T) {
 					t.Fatal("Expected artifact to be returned")
 				}
 
+				// Verify staging directory files
 				stagingDir := filepath.Join(workspace, "recursive-artifact")
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "root.yaml"):             "root content",
@@ -359,6 +403,9 @@ func TestBuild(t *testing.T) {
 						t.Errorf("File %s: expected content '%s', got '%s'", expectedPath, expectedContent, string(content))
 					}
 				}
+
+				// Verify tar.gz archive contents
+				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -411,6 +458,7 @@ func TestBuild(t *testing.T) {
 					t.Fatal("Expected artifact to be returned")
 				}
 
+				// Verify staging directory file
 				stagingDir := filepath.Join(workspace, "overwrite-artifact")
 				configFile := filepath.Join(stagingDir, "config.yaml")
 
@@ -496,9 +544,8 @@ func TestBuild(t *testing.T) {
 					t.Fatal("Expected artifact to be returned")
 				}
 
+				// Verify staging directory files
 				stagingDir := filepath.Join(workspace, "subdir-overwrite-artifact")
-
-				// Verify expected file contents after merge/overwrite
 				expectedFiles := map[string]string{
 					// app.yaml should be overwritten by source2
 					filepath.Join(stagingDir, "config", "app.yaml"): "source2 app config - OVERWRITTEN",
@@ -524,6 +571,9 @@ func TestBuild(t *testing.T) {
 						t.Errorf("File %s: expected content '%s', got '%s'", expectedPath, expectedContent, string(content))
 					}
 				}
+
+				// Verify tar.gz archive contents
+				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 	}
@@ -547,5 +597,55 @@ func TestBuild(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// verifyTarGzContents extracts and verifies the contents of a tar.gz artifact
+// It takes the expected files from the staging directory and verifies they exist in the tar.gz
+func verifyTarGzContents(t *testing.T, testStorage *storage.Storage, artifact *meta.Artifact, stagingDir string, expectedFiles map[string]string) {
+	t.Helper()
+
+	// Create a temporary directory for extraction
+	extractDir := t.TempDir()
+
+	// Get the full path to the artifact
+	artifactPath := filepath.Join(testStorage.BasePath, artifact.Path)
+
+	// Open the tar.gz file
+	file, err := os.Open(artifactPath)
+	if err != nil {
+		t.Fatalf("Failed to open tar.gz %s: %v", artifactPath, err)
+	}
+	defer file.Close()
+
+	// Extract the tar.gz file
+	if err := tar.Untar(file, extractDir, tar.WithMaxUntarSize(-1)); err != nil {
+		t.Fatalf("Failed to extract tar.gz %s: %v", artifactPath, err)
+	}
+
+	// Verify expected files exist with correct content by reading from staging directory
+	for stagingPath, expectedContent := range expectedFiles {
+		// Convert staging path to relative path within the tar
+		relPath, err := filepath.Rel(stagingDir, stagingPath)
+		if err != nil {
+			t.Errorf("Failed to get relative path for %s: %v", stagingPath, err)
+			continue
+		}
+
+		fullPath := filepath.Join(extractDir, relPath)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			t.Errorf("Expected file %s to exist in tar.gz but it doesn't", relPath)
+			continue
+		}
+
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			t.Errorf("Failed to read extracted file %s: %v", relPath, err)
+			continue
+		}
+
+		if string(content) != expectedContent {
+			t.Errorf("File %s: expected content '%s', got '%s'", relPath, expectedContent, string(content))
+		}
 	}
 }

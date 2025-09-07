@@ -176,6 +176,17 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		r.finalizeExternalArtifacts(ctx, orphans)
 	}
 
+	// Garbage collect old artifacts in storage according to the retention policy.
+	for _, eaRef := range extRefs {
+		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "*")
+		delFiles, err := r.Storage.GarbageCollect(ctx, meta.Artifact{Path: storagePath}, 5*time.Minute)
+		if err != nil {
+			log.Error(err, "failed to garbage collect artifacts", "path", storagePath)
+		} else if len(delFiles) > 0 {
+			log.Info(fmt.Sprintf("garbage collected %d old artifact(s)", len(delFiles)), "artifacts", delFiles)
+		}
+	}
+
 	// Update the status with the list of ExternalArtifact references.
 	obj.Status.Inventory = extRefs
 	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifacts", len(extRefs))

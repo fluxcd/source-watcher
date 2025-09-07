@@ -72,6 +72,7 @@ func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
 		return nil, fmt.Errorf("failed to create staging dir: %w", err)
 	}
 
+	// Apply the copy operations to the staging dir.
 	if err := applyCopyOperations(spec.Copy, sources, stagingDir); err != nil {
 		return nil, fmt.Errorf("failed to apply copy operations: %w", err)
 	}
@@ -80,6 +81,13 @@ func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
 	if err := r.Storage.MkdirAll(artifact); err != nil {
 		return nil, fmt.Errorf("failed to create artifact directory: %w", err)
 	}
+
+	// Lock the artifact during creation to prevent concurrent writes.
+	unlock, err := r.Storage.Lock(artifact)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire artifact lock: %w", err)
+	}
+	defer unlock()
 
 	// Create the artifact tarball from the staging dir.
 	if err := r.Storage.Archive(&artifact, stagingDir, storage.SourceIgnoreFilter(nil, nil)); err != nil {

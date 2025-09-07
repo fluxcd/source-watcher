@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,14 +147,17 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	})
 	g.Expect(err).ToNot(HaveOccurred())
 
+	// Verify garbage collection keeps 2 versions per artifact
+	archives, err := findArtifactsInStorage(obj.Namespace)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(archives).To(HaveLen(4))
+
 	// Verify that only the OCI ExternalArtifact was updated
 	for _, inv := range inventory {
 		externalArtifact := &sourcev1.ExternalArtifact{}
 		key := client.ObjectKey{Name: inv.Name, Namespace: inv.Namespace}
 		err = testClient.Get(ctx, key, externalArtifact)
 		g.Expect(err).ToNot(HaveOccurred())
-
-		t.Log(objToYaml(externalArtifact))
 
 		if inv.Name == fmt.Sprintf("%s-git", obj.Name) {
 			g.Expect(externalArtifact.Status.Artifact.Digest).To(Equal(gitArtifactDigest))
@@ -163,6 +167,9 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 			g.Expect(externalArtifact.Status.Artifact.Digest).ToNot(Equal(ociArtifactDigest))
 			g.Expect(externalArtifact.Status.Artifact.Digest).To(Equal(gitArtifactDigest))
 		}
+
+		// Verify that garbage collection did not remove the current artifacts
+		g.Expect(archives).To(ContainElement(externalArtifact.Status.Artifact.Path))
 	}
 
 	// Remove the Git OutputArtifact from the spec
@@ -187,8 +194,6 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	err = testClient.Get(ctx, objKey, obj)
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(obj.Status.Inventory).To(HaveLen(1))
-
-	t.Log(objToYaml(obj))
 
 	// Verify the ExternalArtifact object was deleted
 	deletedArtifact := &sourcev1.ExternalArtifact{}
@@ -222,6 +227,11 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	}
+
+	// Verify that all artifacts were deleted from storage
+	a, err := findArtifactsInStorage(obj.Namespace)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(a).To(HaveLen(0))
 }
 
 func TestResourceSetReconciler_Finalize(t *testing.T) {
@@ -767,4 +777,23 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []testse
 	}
 
 	return testClient.Status().Patch(context.Background(), repo, client.Apply, statusOpts)
+}
+
+func findArtifactsInStorage(namespace string) ([]string, error) {
+	var artifacts []string
+	basePath := filepath.Join(testStorage.BasePath, strings.ToLower(sourcev1.ExternalArtifactKind), namespace)
+	err := filepath.WalkDir(basePath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && filepath.Ext(d.Name()) == ".gz" {
+			relPath, _ := filepath.Rel(testStorage.BasePath, path)
+			artifacts = append(artifacts, relPath)
+		}
+		return nil
+	})
+	if os.IsNotExist(err) {
+		return artifacts, nil
+	}
+	return artifacts, err
 }

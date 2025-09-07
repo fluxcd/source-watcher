@@ -65,7 +65,7 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Cont
 
 	for _, eaRef := range refs {
 		// Delete from storage.
-		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "tar.gz")
+		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "*")
 		rmDir, err := r.Storage.RemoveAll(meta.Artifact{Path: storagePath})
 		if err != nil {
 			log.Error(err, "Failed to delete artifact from storage", "path", storagePath)
