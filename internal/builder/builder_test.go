@@ -17,6 +17,7 @@ limitations under the License.
 package builder
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -582,7 +583,7 @@ func TestBuild(t *testing.T) {
 			testBuilder := New(testStorage)
 			spec, sources, workspace := tt.setupFunc(t)
 
-			artifact, err := testBuilder.Build(spec, sources, "test-namespace", workspace)
+			artifact, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
 
 			if tt.expectError {
 				if err == nil {

@@ -170,7 +170,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	artifactBuilder := builder.New(r.Storage)
 	for _, oa := range obj.Spec.OutputArtifacts {
 		// Build the artifact using the local sources.
-		artifact, err := artifactBuilder.Build(&oa, localSources, obj.Namespace, tmpDir)
+		artifact, err := artifactBuilder.Build(ctx, &oa, localSources, obj.Namespace, tmpDir)
 		if err != nil {
 			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
 			conditions.MarkFalse(obj,

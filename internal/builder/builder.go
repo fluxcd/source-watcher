@@ -17,6 +17,7 @@ limitations under the License.
 package builder
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -52,7 +53,8 @@ func New(storage *storage.Storage) *ArtifactBuilder {
 // artifact storage. The resulting artifact metadata is returned.
 // The artifact archive is stored under the following path:
 // <storage-root>/<kind>/<namespace>/<name>/<artifact-uuid>.tar.gz
-func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
+func (r *ArtifactBuilder) Build(ctx context.Context,
+	spec *swapi.OutputArtifact,
 	sources map[string]string,
 	namespace string,
 	workspace string) (*meta.Artifact, error) {
@@ -74,7 +76,7 @@ func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
 	}
 
 	// Apply the copy operations to the staging dir.
-	if err := applyCopyOperations(spec.Copy, sources, stagingDir); err != nil {
+	if err := applyCopyOperations(ctx, spec.Copy, sources, stagingDir); err != nil {
 		return nil, fmt.Errorf("failed to apply copy operations: %w", err)
 	}
 
@@ -101,16 +103,19 @@ func (r *ArtifactBuilder) Build(spec *swapi.OutputArtifact,
 	return artifact.DeepCopy(), nil
 }
 
-func applyCopyOperations(operations []swapi.CopyOperation, sources map[string]string, stagingDir string) error {
+func applyCopyOperations(ctx context.Context, operations []swapi.CopyOperation, sources map[string]string, stagingDir string) error {
 	for _, op := range operations {
-		if err := applyCopyOperation(op, sources, stagingDir); err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := applyCopyOperation(ctx, op, sources, stagingDir); err != nil {
 			return fmt.Errorf("failed to apply copy operation from '%s' to '%s': %w", op.From, op.To, err)
 		}
 	}
 	return nil
 }
 
-func applyCopyOperation(op swapi.CopyOperation, sources map[string]string, stagingDir string) error {
+func applyCopyOperation(ctx context.Context, op swapi.CopyOperation, sources map[string]string, stagingDir string) error {
 	srcAlias, srcPattern, err := parseCopySource(op.From)
 	if err != nil {
 		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
@@ -150,8 +155,11 @@ func applyCopyOperation(op swapi.CopyOperation, sources map[string]string, stagi
 	}
 
 	for _, match := range matches {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		destFile := filepath.Join(destRelPath, match)
-		if err := copyFileWithRoots(srcRoot, match, stagingRoot, destFile); err != nil {
+		if err := copyFileWithRoots(ctx, srcRoot, match, stagingRoot, destFile); err != nil {
 			return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
 		}
 	}
@@ -183,21 +191,25 @@ func parseCopyDestinationRelative(to string) (string, error) {
 }
 
 // copyFileWithRoots copies a file from srcRoot to stagingRoot using secure root operations
-func copyFileWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+func copyFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		return copyDirWithRoots(srcRoot, srcPath, stagingRoot, destPath)
+		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
 	}
 
-	return copyRegularFileWithRoots(srcRoot, srcPath, stagingRoot, destPath)
+	return copyRegularFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
 }
 
 // copyRegularFileWithRoots copies a regular file using secure root operations
-func copyRegularFileWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+func copyRegularFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Create destination directory
 	destDir := filepath.Dir(destPath)
 	if destDir != "." && destDir != "" {
@@ -236,8 +248,12 @@ func copyRegularFileWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.
 }
 
 // copyDirWithRoots copies a directory recursively using secure root operations
-func copyDirWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+func copyDirWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
 	return fs.WalkDir(srcRoot.FS(), srcPath, func(path string, d fs.DirEntry, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if err != nil {
 			return err
 		}
@@ -260,7 +276,7 @@ func copyDirWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, de
 			return createDirRecursive(stagingRoot, destFilePath)
 		}
 
-		return copyRegularFileWithRoots(srcRoot, path, stagingRoot, destFilePath)
+		return copyRegularFileWithRoots(ctx, srcRoot, path, stagingRoot, destFilePath)
 	})
 }
 
