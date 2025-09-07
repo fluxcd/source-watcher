@@ -20,6 +20,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/fluxcd/pkg/runtime/acl"
 	"github.com/fluxcd/pkg/runtime/probes"
 	flag "github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
@@ -70,6 +71,7 @@ func main() {
 		httpRetry            int
 		requeueDependency    time.Duration
 		artifactOptions      artcfg.Options
+		aclOptions           acl.Options
 		clientOptions        client.Options
 		logOptions           logger.Options
 	)
@@ -86,6 +88,7 @@ func main() {
 		"The interval at which failing dependencies are reevaluated.")
 
 	artifactOptions.BindFlags(flag.CommandLine)
+	aclOptions.BindFlags(flag.CommandLine)
 	clientOptions.BindFlags(flag.CommandLine)
 	logOptions.BindFlags(flag.CommandLine)
 
@@ -142,6 +145,7 @@ func main() {
 		Storage:                   storage,
 		ArtifactFetchRetries:      httpRetry,
 		DependencyRequeueInterval: requeueDependency,
+		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", swapi.ArtifactGeneratorKind)
 		os.Exit(1)

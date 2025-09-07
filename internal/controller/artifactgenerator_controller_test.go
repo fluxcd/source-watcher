@@ -27,6 +27,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/go-digest"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -223,6 +224,13 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(updatedArtifact.Status.Artifact).ToNot(BeNil())
 	g.Expect(updatedArtifact.Status.Artifact.Revision).To(Equal(ociRevision))
 
+	// Verify events were recorded
+	events := getEvents(obj.Name, obj.Namespace)
+	g.Expect(events).ToNot(BeEmpty())
+	g.Expect(events[0].Type).To(Equal(corev1.EventTypeNormal))
+	g.Expect(events[0].Reason).To(Equal(meta.ReadyCondition))
+	g.Expect(events[0].Message).To(ContainSubstring("reconciliation succeeded"))
+
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
 	g.Expect(err).ToNot(HaveOccurred())
@@ -354,6 +362,69 @@ func TestResourceSetReconciler_Finalize_Disabled(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(conditions.IsTrue(obj, meta.ReadyCondition)).To(BeTrue())
 	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(swapi.ReconciliationDisabledReason))
+
+	// Delete the object to trigger finalization
+	err = testClient.Delete(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to free resources
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	// Verify the object has been deleted
+	resultFinal := &swapi.ArtifactGenerator{}
+	err = testClient.Get(ctx, objKey, resultFinal)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+}
+
+func TestResourceSetReconciler_Lockdown(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Create a namespace for the ArtifactGenerator
+	ns, err := testEnv.CreateNamespace(ctx, "test")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the ArtifactGenerator object with a source in a different namespace
+	objKey := client.ObjectKey{
+		Name:      "test",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	obj.Spec.Sources[0].Namespace = "other-namespace"
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Initialize the object with the finalizer
+	r, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
+
+	// Verify the reconciler fails with terminal error
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	// Verify the object is stalled with access denied reason
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(conditions.IsStalled(obj)).To(BeTrue())
+	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(swapi.AccessDeniedReason))
+
+	// Verify event was recorded
+	events := getEvents(obj.Name, obj.Namespace)
+	g.Expect(events).ToNot(BeEmpty())
+	g.Expect(events[0].Reason).To(Equal(swapi.AccessDeniedReason))
 
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
@@ -611,6 +682,20 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 	}
 }
 
+func getArtifactGeneratorReconciler() *ArtifactGeneratorReconciler {
+	return &ArtifactGeneratorReconciler{
+		ControllerName:            controllerName,
+		Client:                    testClient,
+		APIReader:                 testClient,
+		Scheme:                    testEnv.Scheme(),
+		EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
+		Storage:                   testStorage,
+		ArtifactFetchRetries:      1,
+		DependencyRequeueInterval: 5 * time.Second,
+		NoCrossNamespaceRefs:      true,
+	}
+}
+
 func getArtifactGenerator(objectKey client.ObjectKey) *swapi.ArtifactGenerator {
 	return &swapi.ArtifactGenerator{
 		TypeMeta: metav1.TypeMeta{
@@ -655,19 +740,6 @@ func getArtifactGenerator(objectKey client.ObjectKey) *swapi.ArtifactGenerator {
 				},
 			},
 		},
-	}
-}
-
-func getArtifactGeneratorReconciler() *ArtifactGeneratorReconciler {
-	return &ArtifactGeneratorReconciler{
-		ControllerName:            controllerName,
-		Client:                    testClient,
-		APIReader:                 testClient,
-		Scheme:                    testEnv.Scheme(),
-		EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
-		Storage:                   testStorage,
-		ArtifactFetchRetries:      1,
-		DependencyRequeueInterval: 5 * time.Second,
 	}
 }
 

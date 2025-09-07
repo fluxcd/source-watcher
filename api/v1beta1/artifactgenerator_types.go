@@ -30,6 +30,7 @@ const (
 	Finalizer                    = "source.extensions.fluxcd.io/finalizer"
 	ReconcileAnnotation          = "source.extensions.fluxcd.io/reconcile"
 	ReconciliationDisabledReason = "ReconciliationDisabled"
+	AccessDeniedReason           = "AccessDenied"
 	EnabledValue                 = "enabled"
 	DisabledValue                = "disabled"
 )

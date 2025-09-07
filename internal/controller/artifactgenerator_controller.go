@@ -59,6 +59,7 @@ type ArtifactGeneratorReconciler struct {
 	APIReader                 client.Reader
 	ArtifactFetchRetries      int
 	DependencyRequeueInterval time.Duration
+	NoCrossNamespaceRefs      bool
 }
 
 // +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators,verbs=get;list;watch;create;update;patch;delete
@@ -104,6 +105,25 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		log.Error(errors.New("can't reconcile"), msgReconciliationDisabled)
 		r.Event(obj, corev1.EventTypeWarning, swapi.ReconciliationDisabledReason, msgReconciliationDisabled)
 		return ctrl.Result{}, nil
+	}
+
+	// Enforce multi-tenancy lockdown if configured to do so.
+	if r.NoCrossNamespaceRefs {
+		for _, src := range obj.Spec.Sources {
+			if src.Namespace != "" && src.Namespace != obj.Namespace {
+				terminalErr := fmt.Errorf("cross-namespace reference to source %s/%s/%s is not allowed",
+					src.Kind, src.Namespace, src.Name)
+				conditions.MarkFalse(obj,
+					meta.ReadyCondition,
+					swapi.AccessDeniedReason,
+					"%s", terminalErr.Error())
+				conditions.MarkStalled(obj,
+					swapi.AccessDeniedReason,
+					"%s", terminalErr.Error())
+				r.Event(obj, corev1.EventTypeWarning, swapi.AccessDeniedReason, terminalErr.Error())
+				return ctrl.Result{}, reconcile.TerminalError(terminalErr)
+			}
+		}
 	}
 
 	return r.reconcile(ctx, obj, patcher)
@@ -214,7 +234,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 
 	// Update the status with the list of ExternalArtifact references.
 	obj.Status.Inventory = extRefs
-	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifacts", len(extRefs))
+	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifact(s)", len(extRefs))
 	conditions.MarkTrue(obj,
 		meta.ReadyCondition,
 		meta.SucceededReason,
@@ -241,7 +261,6 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 			Namespace: obj.Namespace,
 		}
 
-		// TODO: Enforce cross-namespace restrictions based on Flux multitenancy policies.
 		if src.Namespace != "" {
 			namespacedName.Namespace = src.Namespace
 		}
