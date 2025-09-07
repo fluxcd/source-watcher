@@ -19,13 +19,16 @@ package controller
 import (
 	"context"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	"github.com/fluxcd/pkg/runtime/patch"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/patch"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -66,6 +69,20 @@ func (r *ArtifactGeneratorReconciler) initializeObjectStatus(obj *swapi.Artifact
 func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 	obj *swapi.ArtifactGenerator) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Delete ExternalArtifacts found in the inventory.
+	for _, eaRef := range obj.Status.Inventory {
+		ea := &sourcev1.ExternalArtifact{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      eaRef.Name,
+				Namespace: eaRef.Namespace,
+			},
+		}
+		err := r.Client.Delete(ctx, ea)
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to delete ExternalArtifact")
+		}
+	}
 
 	// Remove the finalizer.
 	controllerutil.RemoveFinalizer(obj, swapi.Finalizer)

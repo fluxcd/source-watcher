@@ -19,9 +19,15 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	kuberecorder "k8s.io/client-go/tools/record"
@@ -29,10 +35,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/artifact/storage"
+	"github.com/fluxcd/pkg/http/fetch"
+	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
+	"github.com/fluxcd/pkg/tar"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	"github.com/fluxcd/source-watcher/internal/builder"
 )
 
 // ArtifactGeneratorReconciler reconciles a ArtifactGenerator object.
@@ -93,6 +105,279 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	log.Info("Reconciling")
+	return r.reconcile(ctx, obj, patcher)
+}
+
+func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
+	patcher *patch.SerialPatcher) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Create a temporary directory to fetch sources and build artifacts.
+	tmpDir, err := builder.MkdirTempAbs("", "ag-")
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create tmp dir: %w", err)
+	}
+
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Error(err, "failed to remove tmp dir", "dir", tmpDir)
+		}
+	}()
+
+	// Fetch all sources into the tmpDir.
+	// The sources will be placed in subdirectories named after the source alias.
+	// e.g. <tmpDir>/<source-alias>/<source-files>
+	localSources, err := r.getSources(ctx, obj, tmpDir)
+	if err != nil {
+		msg := fmt.Sprintf("fetch sources failed: %s", err.Error())
+		conditions.MarkFalse(obj,
+			meta.ReadyCondition,
+			meta.ArtifactFailedReason,
+			"%s", msg)
+		r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
+		return ctrl.Result{}, err
+	}
+
+	extRefs := make([]meta.NamespacedObjectKindReference, 0, len(obj.Spec.OutputArtifacts))
+
+	// Build the output artifacts.
+	for _, oa := range obj.Spec.OutputArtifacts {
+		artifact, err := r.buildArtifact(obj, &oa, localSources, tmpDir)
+		if err != nil {
+			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
+			conditions.MarkFalse(obj,
+				meta.ReadyCondition,
+				meta.ArtifactFailedReason,
+				"%s", msg)
+			r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
+			return ctrl.Result{}, err
+		}
+
+		// Reconcile the ExternalArtifact object for the output artifact.
+		extRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact)
+		if err != nil {
+			msg := fmt.Sprintf("%s apply failed: %s", oa.Name, err.Error())
+			conditions.MarkFalse(obj,
+				meta.ReadyCondition,
+				meta.ArtifactFailedReason,
+				"%s", msg)
+			r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
+			return ctrl.Result{}, err
+		}
+		extRefs = append(extRefs, *extRef)
+	}
+
+	// TODO: Clean up old ExternalArtifact objects that are no longer in status.Inventory.
+
+	// Update the status with the list of ExternalArtifact references.
+	obj.Status.Inventory = extRefs
+	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifacts", len(extRefs))
+	conditions.MarkTrue(obj,
+		meta.ReadyCondition,
+		meta.SucceededReason,
+		"%s", msg)
+	r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
+
 	return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
+}
+
+// getSources fetches the sources defined in the ArtifactGenerator spec
+// into the provided tmpDir under a subdirectory named after the source alias.
+// It returns a map of source alias to the absolute path where the source was fetched.
+func (r *ArtifactGeneratorReconciler) getSources(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
+	tmpDir string) (map[string]string, error) {
+	// Map of source alias to local path.
+	result := make(map[string]string)
+
+	for _, src := range obj.Spec.Sources {
+		namespacedName := client.ObjectKey{
+			Name:      src.Name,
+			Namespace: obj.Namespace,
+		}
+
+		// TODO: Enforce cross-namespace restrictions based on Flux multitenancy policies.
+		if src.Namespace != "" {
+			namespacedName.Namespace = src.Namespace
+		}
+
+		var source sourcev1.Source
+		switch src.Kind {
+		case sourcev1.OCIRepositoryKind:
+			var repository sourcev1.OCIRepository
+			err := r.Client.Get(ctx, namespacedName, &repository)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					return result, err
+				}
+				return result, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+			}
+			source = &repository
+		case sourcev1.GitRepositoryKind:
+			var repository sourcev1.GitRepository
+			err := r.Client.Get(ctx, namespacedName, &repository)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					return result, err
+				}
+				return result, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+			}
+			source = &repository
+		case sourcev1.BucketKind:
+			var bucket sourcev1.Bucket
+			err := r.Client.Get(ctx, namespacedName, &bucket)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					return result, err
+				}
+				return result, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+			}
+			source = &bucket
+		default:
+			return result, fmt.Errorf("source `%s` kind '%s' not supported",
+				src.Name, src.Kind)
+		}
+
+		// Create a dir for the source alias.
+		srcDir := filepath.Join(tmpDir, src.Alias)
+		if err := os.MkdirAll(srcDir, 0o755); err != nil {
+			return result, fmt.Errorf("failed to create source dir: %w", err)
+		}
+
+		// Download artifact and extract files to the source alias dir.
+		fetcher := fetch.New(
+			fetch.WithLogger(ctrl.LoggerFrom(ctx)),
+			fetch.WithRetries(r.ArtifactFetchRetries),
+			fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
+			fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
+			fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
+		)
+		if err := fetcher.Fetch(source.GetArtifact().URL, source.GetArtifact().Digest, srcDir); err != nil {
+			conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+			return result, err
+		}
+		result[src.Alias] = srcDir
+	}
+
+	return result, nil
+}
+
+// buildArtifact runs the copy operations and creates the tarball in the storage backend.
+func (r *ArtifactGeneratorReconciler) buildArtifact(obj *swapi.ArtifactGenerator,
+	oa *swapi.OutputArtifact,
+	source map[string]string,
+	tmpDir string) (*meta.Artifact, error) {
+	// Initialize the Artifact object in the storage backend.
+	artifact := r.Storage.NewArtifactFor(
+		swapi.ArtifactGeneratorKind,
+		&metav1.ObjectMeta{
+			Name:      oa.Name,
+			Namespace: obj.Namespace,
+		},
+		oa.Revision,
+		fmt.Sprintf("%s.tar.gz", uuid.NewString()),
+	)
+
+	// Create a dir to stage the artifact files.
+	stagingDir := filepath.Join(tmpDir, oa.Name)
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create staging dir: %w", err)
+	}
+
+	if err := builder.ApplyCopyOperations(oa.Copy, source, stagingDir); err != nil {
+		return nil, fmt.Errorf("failed to apply copy operations: %w", err)
+	}
+
+	// Create the artifact directory in storage.
+	if err := r.Storage.MkdirAll(artifact); err != nil {
+		return nil, fmt.Errorf("failed to create artifact directory: %w", err)
+	}
+
+	// Create the artifact tarball from the staging dir.
+	if err := r.Storage.Archive(&artifact, stagingDir, storage.SourceIgnoreFilter(nil, nil)); err != nil {
+		return nil, fmt.Errorf("failed to create artifact: %w", err)
+	}
+
+	// If no revision was specified, set it to latest@<digest>.
+	if oa.Revision == "" {
+		artifact.Revision = fmt.Sprintf("latest@%s", artifact.Digest)
+	}
+
+	return artifact.DeepCopy(), nil
+}
+
+// reconcileExternalArtifact ensures the ExternalArtifact object exists and is up to date
+// with the provided artifact details. It returns a reference to the ExternalArtifact.
+func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
+	outputArtifact *swapi.OutputArtifact,
+	artifact *meta.Artifact) (*meta.NamespacedObjectKindReference, error) {
+	log := ctrl.LoggerFrom(ctx)
+	// Create the ExternalArtifact object.
+	externalArtifact := &sourcev1.ExternalArtifact{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       sourcev1.ExternalArtifactKind,
+			APIVersion: sourcev1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      outputArtifact.Name,
+			Namespace: obj.Namespace,
+			Labels:    obj.GetLabels(),
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(obj, swapi.GroupVersion.WithKind(swapi.ArtifactGeneratorKind)),
+			},
+		},
+		Spec: sourcev1.ExternalArtifactSpec{
+			SourceRef: &meta.NamespacedObjectKindReference{
+				APIVersion: swapi.GroupVersion.String(),
+				Kind:       swapi.ArtifactGeneratorKind,
+				Name:       obj.Name,
+				Namespace:  obj.Namespace,
+			},
+		},
+	}
+
+	// Apply the ExternalArtifact object.
+	forceApply := true
+	if err := r.Patch(ctx, externalArtifact, client.Apply, &client.PatchOptions{
+		FieldManager: r.ControllerName,
+		Force:        &forceApply,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to apply ExternalArtifact: %w", err)
+	}
+
+	// Update the status of the ExternalArtifact with the artifact details.
+	externalArtifact.ManagedFields = nil
+	externalArtifact.Status = sourcev1.ExternalArtifactStatus{
+		Artifact: artifact,
+		Conditions: []metav1.Condition{
+			{
+				ObservedGeneration: externalArtifact.GetGeneration(),
+				Type:               meta.ReadyCondition,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             meta.SucceededReason,
+				Message:            "Artifact is ready",
+			},
+		},
+	}
+	statusOpts := &client.SubResourcePatchOptions{
+		PatchOptions: client.PatchOptions{
+			FieldManager: r.ControllerName,
+		},
+	}
+	if err := r.Status().Patch(ctx, externalArtifact, client.Apply, statusOpts); err != nil {
+		return nil, fmt.Errorf("failed to patch ExternalArtifact status: %w", err)
+	}
+
+	log.Info(fmt.Sprintf("ExternalArtifact/%s/%s reconciled with revision %s",
+		externalArtifact.Namespace, externalArtifact.Name, artifact.Revision))
+
+	return &meta.NamespacedObjectKindReference{
+		APIVersion: sourcev1.GroupVersion.String(),
+		Kind:       sourcev1.ExternalArtifactKind,
+		Name:       externalArtifact.Name,
+		Namespace:  externalArtifact.Namespace,
+	}, nil
 }
