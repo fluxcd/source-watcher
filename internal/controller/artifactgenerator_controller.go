@@ -171,10 +171,10 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		extRefs = append(extRefs, *extRef)
 	}
 
-	// TODO: Clean up old ExternalArtifact objects by comparing status.Inventory with extRefs.
-	// The old ExternalArtifact objects can be identified by their absence in extRefs.
-	// The cleanup implies deleting the ExternalArtifact objects that are no longer referenced
-	// and removing their artifacts from the storage.
+	// Garbage collect orphaned ExternalArtifacts and their associated artifacts in storage.
+	if orphans := r.findOrphanedReferences(obj.Status.Inventory, extRefs); len(orphans) > 0 {
+		r.finalizeExternalArtifacts(ctx, orphans)
+	}
 
 	// Update the status with the list of ExternalArtifact references.
 	obj.Status.Inventory = extRefs
@@ -342,4 +342,28 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		Name:       externalArtifact.Name,
 		Namespace:  externalArtifact.Namespace,
 	}, nil
+}
+
+// findOrphanedReferences identifies ExternalArtifact references in the inventory
+// that are not present in the current references, indicating they should be garbage collected.
+func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
+	inventory []meta.NamespacedObjectKindReference,
+	currentRefs []meta.NamespacedObjectKindReference) []meta.NamespacedObjectKindReference {
+	// Create map of current references for O(1) lookup
+	currentSet := make(map[string]bool)
+	for _, ref := range currentRefs {
+		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
+		currentSet[key] = true
+	}
+
+	// Find inventory items not in current set
+	var orphaned []meta.NamespacedObjectKindReference
+	for _, ref := range inventory {
+		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
+		if !currentSet[key] {
+			orphaned = append(orphaned, ref)
+		}
+	}
+
+	return orphaned
 }

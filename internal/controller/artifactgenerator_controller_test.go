@@ -58,7 +58,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	err = testClient.Create(ctx, obj)
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// Create GitRepository
+	// Create the GitRepository source
 	gitFiles := []testserver.File{
 		{Name: "app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: test-app"},
 		{Name: "service.yaml", Body: "apiVersion: v1\nkind: Service\nmetadata:\n  name: test-service"},
@@ -66,7 +66,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	err = applyGitRepository(objKey, "main@sha256:abc123", gitFiles)
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// Create OCIRepository
+	// Create the OCIRepository source
 	ociFiles := []testserver.File{
 		{Name: "config.json", Body: "{\"version\": \"1.0\", \"env\": \"production\"}"},
 		{Name: "manifest.yaml", Body: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test-config"},
@@ -74,7 +74,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	err = applyOCIRepository(objKey, "latest@sha256:def456", ociFiles)
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// Initialize the object with the finalizer
+	// Initialize the ArtifactGenerator with the finalizer
 	r, err := reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: objKey,
 	})
@@ -88,7 +88,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(r.RequeueAfter).To(Equal(obj.GetRequeueAfter()))
 
-	// Verify the object status
+	// Verify the ArtifactGenerator status
 	err = testClient.Get(ctx, objKey, obj)
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(conditions.IsReady(obj)).To(BeTrue())
@@ -165,6 +165,38 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 		}
 	}
 
+	// Remove the Git OutputArtifact from the spec
+	gitArtifactName := fmt.Sprintf("%s-git", obj.Name)
+	var outputArtifacts []swapi.OutputArtifact
+	for _, art := range obj.Spec.OutputArtifacts {
+		if art.Name != gitArtifactName {
+			outputArtifacts = append(outputArtifacts, art)
+		}
+	}
+	obj.Spec.OutputArtifacts = outputArtifacts
+	err = testClient.Update(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to process the spec change
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Verify inventory contains only one output artifact
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(obj.Status.Inventory).To(HaveLen(1))
+
+	t.Log(objToYaml(obj))
+
+	// Verify the ExternalArtifact object was deleted
+	deletedArtifact := &sourcev1.ExternalArtifact{}
+	key := client.ObjectKey{Name: gitArtifactName, Namespace: obj.Namespace}
+	err = testClient.Get(ctx, key, deletedArtifact)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
 	g.Expect(err).ToNot(HaveOccurred())
@@ -176,13 +208,13 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(r.RequeueAfter).To(BeZero())
 
-	// Verify the object has been deleted
+	// Verify the ArtifactGenerator was deleted
 	resultFinal := &swapi.ArtifactGenerator{}
 	err = testClient.Get(ctx, objKey, resultFinal)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
-	// Verify ExternalArtifact objects were deleted
+	// Verify the ExternalArtifact objects were deleted
 	for _, inv := range inventory {
 		externalArtifact := &sourcev1.ExternalArtifact{}
 		key := client.ObjectKey{Name: inv.Name, Namespace: inv.Namespace}

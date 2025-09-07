@@ -47,7 +47,23 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 	log := ctrl.LoggerFrom(ctx)
 
 	// Delete ExternalArtifacts found in the inventory.
-	for _, eaRef := range obj.Status.Inventory {
+	r.finalizeExternalArtifacts(ctx, obj.Status.Inventory)
+
+	// Remove the finalizer.
+	controllerutil.RemoveFinalizer(obj, swapi.Finalizer)
+	log.Info("Removed finalizer", "finalizer", swapi.Finalizer)
+
+	return ctrl.Result{}, nil
+}
+
+// finalizeExternalArtifacts deletes the ExternalArtifact resources
+// referenced in the provided list, along with their associated
+// artifacts in the storage backend.
+func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Context,
+	refs []meta.NamespacedObjectKindReference) {
+	log := ctrl.LoggerFrom(ctx)
+
+	for _, eaRef := range refs {
 		// Delete from storage.
 		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "tar.gz")
 		rmDir, err := r.Storage.RemoveAll(meta.Artifact{Path: storagePath})
@@ -71,12 +87,6 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 			log.Info(fmt.Sprintf("%s/%s/%s deleted from cluster", eaRef.Kind, eaRef.Namespace, eaRef.Name))
 		}
 	}
-
-	// Remove the finalizer.
-	controllerutil.RemoveFinalizer(obj, swapi.Finalizer)
-	log.Info("Removed finalizer", "finalizer", swapi.Finalizer)
-
-	return ctrl.Result{}, nil
 }
 
 // finalizeStatus updates the status of the object after reconciliation
