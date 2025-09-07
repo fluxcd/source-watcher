@@ -18,6 +18,7 @@ package builder
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,7 +116,7 @@ func applyCopyOperation(op swapi.CopyOperation, sources map[string]string, stagi
 		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
 	}
 
-	destPath, err := parseCopyDestination(op.To, stagingDir)
+	destRelPath, err := parseCopyDestinationRelative(op.To)
 	if err != nil {
 		return fmt.Errorf("invalid copy destination '%s': %w", op.To, err)
 	}
@@ -125,10 +126,23 @@ func applyCopyOperation(op swapi.CopyOperation, sources map[string]string, stagi
 		return fmt.Errorf("source alias '%s' not found", srcAlias)
 	}
 
-	srcGlob := filepath.Join(srcDir, srcPattern)
-	matches, err := filepath.Glob(srcGlob)
+	// Create secure roots for file operations
+	srcRoot, err := os.OpenRoot(srcDir)
 	if err != nil {
-		return fmt.Errorf("invalid glob pattern '%s': %w", srcGlob, err)
+		return fmt.Errorf("failed to open source root '%s': %w", srcDir, err)
+	}
+	defer srcRoot.Close()
+
+	stagingRoot, err := os.OpenRoot(stagingDir)
+	if err != nil {
+		return fmt.Errorf("failed to open staging root '%s': %w", stagingDir, err)
+	}
+	defer stagingRoot.Close()
+
+	// Use the source root filesystem to safely glob for files
+	matches, err := fs.Glob(srcRoot.FS(), srcPattern)
+	if err != nil {
+		return fmt.Errorf("invalid glob pattern '%s': %w", srcPattern, err)
 	}
 
 	if len(matches) == 0 {
@@ -136,13 +150,8 @@ func applyCopyOperation(op swapi.CopyOperation, sources map[string]string, stagi
 	}
 
 	for _, match := range matches {
-		relPath, err := filepath.Rel(srcDir, match)
-		if err != nil {
-			return fmt.Errorf("failed to get relative path: %w", err)
-		}
-
-		destFile := filepath.Join(destPath, relPath)
-		if err := copyFile(match, destFile); err != nil {
+		destFile := filepath.Join(destRelPath, match)
+		if err := copyFileWithRoots(srcRoot, match, stagingRoot, destFile); err != nil {
 			return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
 		}
 	}
@@ -163,76 +172,129 @@ func parseCopySource(from string) (alias, pattern string, err error) {
 	return parts[0], parts[1], nil
 }
 
-func parseCopyDestination(to, stagingDir string) (string, error) {
+// parseCopyDestinationRelative parses the destination path and returns the relative path
+// without joining it to the staging directory (for use with os.Root)
+func parseCopyDestinationRelative(to string) (string, error) {
 	if !strings.HasPrefix(to, "@artifact/") {
 		return "", fmt.Errorf("destination must start with '@artifact/'")
 	}
 
-	relPath := strings.TrimPrefix(to, "@artifact/")
-	return filepath.Join(stagingDir, relPath), nil
+	return strings.TrimPrefix(to, "@artifact/"), nil
 }
 
-func copyFile(src, dest string) error {
-	srcInfo, err := os.Stat(src)
+// copyFileWithRoots copies a file from srcRoot to stagingRoot using secure root operations
+func copyFileWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		return copyDir(src, dest)
+		return copyDirWithRoots(srcRoot, srcPath, stagingRoot, destPath)
 	}
 
-	return copyRegularFile(src, dest)
+	return copyRegularFileWithRoots(srcRoot, srcPath, stagingRoot, destPath)
 }
 
-func copyRegularFile(src, dest string) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
+// copyRegularFileWithRoots copies a regular file using secure root operations
+func copyRegularFileWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+	// Create destination directory
+	destDir := filepath.Dir(destPath)
+	if destDir != "." && destDir != "" {
+		// Create parent directories recursively
+		if err := createDirRecursive(stagingRoot, destDir); err != nil {
+			return fmt.Errorf("failed to create destination directory: %w", err)
+		}
 	}
 
-	srcFile, err := os.Open(src)
+	// Open source file through root
+	srcFile, err := srcRoot.Open(srcPath)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	destFile, err := os.Create(dest)
+	// Create destination file through root
+	destFile, err := stagingRoot.Create(destPath)
 	if err != nil {
 		return err
 	}
 	defer destFile.Close()
 
+	// Copy file contents
 	if _, err := destFile.ReadFrom(srcFile); err != nil {
 		return err
 	}
 
+	// Copy file permissions
 	srcInfo, err := srcFile.Stat()
 	if err != nil {
 		return err
 	}
 
-	return os.Chmod(dest, srcInfo.Mode())
+	return destFile.Chmod(srcInfo.Mode())
 }
 
-func copyDir(src, dest string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+// copyDirWithRoots copies a directory recursively using secure root operations
+func copyDirWithRoots(srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+	return fs.WalkDir(srcRoot.FS(), srcPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, err := filepath.Rel(src, path)
+		// Calculate relative path from srcPath to current path
+		relPath, err := filepath.Rel(srcPath, path)
 		if err != nil {
 			return err
 		}
 
-		destPath := filepath.Join(dest, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
+		// Skip the root directory itself
+		if relPath == "." {
+			// Create the destination directory
+			return createDirRecursive(stagingRoot, destPath)
 		}
 
-		return copyRegularFile(path, destPath)
+		destFilePath := filepath.Join(destPath, relPath)
+
+		if d.IsDir() {
+			return createDirRecursive(stagingRoot, destFilePath)
+		}
+
+		return copyRegularFileWithRoots(srcRoot, path, stagingRoot, destFilePath)
 	})
+}
+
+// MkdirTempAbs creates a tmp dir and returns the absolute path to the dir.
+// This is required since certain OSes like MacOS create temporary files in
+// e.g. `/private/var`, to which `/var` is a symlink.
+// createDirRecursive creates a directory and all its parents using os.Root
+func createDirRecursive(root *os.Root, path string) error {
+	if path == "." || path == "" {
+		return nil
+	}
+
+	// Try to create the directory
+	err := root.Mkdir(path, 0o755)
+	if err == nil {
+		return nil
+	}
+
+	// If it already exists, that's fine
+	if os.IsExist(err) {
+		return nil
+	}
+
+	// If the parent doesn't exist, create it recursively
+	parent := filepath.Dir(path)
+	if parent != path { // Avoid infinite recursion
+		if err := createDirRecursive(root, parent); err != nil {
+			return err
+		}
+		// Try again after creating parent
+		return root.Mkdir(path, 0o755)
+	}
+
+	return err
 }
 
 // MkdirTempAbs creates a tmp dir and returns the absolute path to the dir.
