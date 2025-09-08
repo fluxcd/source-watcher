@@ -25,6 +25,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/artifact/storage"
+	"github.com/fluxcd/pkg/http/fetch"
+	"github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/patch"
+	"github.com/fluxcd/pkg/tar"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,15 +41,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/http/fetch"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	"github.com/fluxcd/pkg/runtime/patch"
-	"github.com/fluxcd/pkg/tar"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 	"github.com/fluxcd/source-watcher/internal/builder"
@@ -168,21 +166,9 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		}
 
 		// Override the revision with the one from the source if specified.
-		// If the source alias is not found, mark the object as Stalled and return a terminal error.
 		if oa.Revision != "" {
 			if rev, ok := revisions[strings.TrimPrefix(oa.Revision, "@")]; ok {
 				artifact.Revision = rev
-			} else {
-				terminalErr := fmt.Errorf("revision %s not found in sources", oa.Revision)
-				conditions.MarkFalse(obj,
-					meta.ReadyCondition,
-					meta.BuildFailedReason,
-					"%s", terminalErr.Error())
-				conditions.MarkStalled(obj,
-					meta.BuildFailedReason,
-					"%s", terminalErr.Error())
-				r.Event(obj, corev1.EventTypeWarning, meta.BuildFailedReason, terminalErr.Error())
-				return ctrl.Result{}, reconcile.TerminalError(terminalErr)
 			}
 		}
 
@@ -326,16 +312,13 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	// Create the ExternalArtifact object.
 	externalArtifact := &sourcev1.ExternalArtifact{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       sourcev1.ExternalArtifactKind,
 			APIVersion: sourcev1.GroupVersion.String(),
+			Kind:       sourcev1.ExternalArtifactKind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      outputArtifact.Name,
 			Namespace: obj.Namespace,
 			Labels:    obj.GetLabels(),
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(obj, swapi.GroupVersion.WithKind(swapi.ArtifactGeneratorKind)),
-			},
 		},
 		Spec: sourcev1.ExternalArtifactSpec{
 			SourceRef: &meta.NamespacedObjectKindReference{
@@ -397,17 +380,15 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	inventory []meta.NamespacedObjectKindReference,
 	currentRefs []meta.NamespacedObjectKindReference) []meta.NamespacedObjectKindReference {
 	// Create map of current references for O(1) lookup
-	currentSet := make(map[string]bool)
+	currentSet := make(map[meta.NamespacedObjectKindReference]struct{})
 	for _, ref := range currentRefs {
-		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
-		currentSet[key] = true
+		currentSet[ref] = struct{}{}
 	}
 
 	// Find inventory items not in current set
 	var orphaned []meta.NamespacedObjectKindReference
 	for _, ref := range inventory {
-		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
-		if !currentSet[key] {
+		if _, exists := currentSet[ref]; !exists {
 			orphaned = append(orphaned, ref)
 		}
 	}
@@ -417,54 +398,42 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 
 // validateSpec validates the ArtifactGenerator spec for uniqueness and multi-tenancy constraints.
 func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator) error {
-	// Validate source aliases are unique and enforce multi-tenancy lockdown if configured.
+	// Validate source aliases.
 	aliasMap := make(map[string]bool)
 	for _, src := range obj.Spec.Sources {
 		// Check for duplicate aliases
 		if aliasMap[src.Alias] {
-			terminalErr := fmt.Errorf("duplicate source alias '%s' found", src.Alias)
-			conditions.MarkFalse(obj,
-				meta.ReadyCondition,
+			return r.newTerminalErrorFor(obj,
 				swapi.ValidationFailedReason,
-				"%s", terminalErr.Error())
-			conditions.MarkStalled(obj,
-				swapi.ValidationFailedReason,
-				"%s", terminalErr.Error())
-			r.Event(obj, corev1.EventTypeWarning, swapi.ValidationFailedReason, terminalErr.Error())
-			return reconcile.TerminalError(terminalErr)
+				"duplicate source alias '%s' found", src.Alias)
 		}
 		aliasMap[src.Alias] = true
 
-		// Enforce multi-tenancy lockdown if configured
+		// Enforce multi-tenancy lockdown if configured.
 		if r.NoCrossNamespaceRefs && src.Namespace != "" && src.Namespace != obj.Namespace {
-			terminalErr := fmt.Errorf("cross-namespace reference to source %s/%s/%s is not allowed",
+			return r.newTerminalErrorFor(obj,
+				swapi.AccessDeniedReason,
+				"cross-namespace reference to source %s/%s/%s is not allowed",
 				src.Kind, src.Namespace, src.Name)
-			conditions.MarkFalse(obj,
-				meta.ReadyCondition,
-				swapi.AccessDeniedReason,
-				"%s", terminalErr.Error())
-			conditions.MarkStalled(obj,
-				swapi.AccessDeniedReason,
-				"%s", terminalErr.Error())
-			r.Event(obj, corev1.EventTypeWarning, swapi.AccessDeniedReason, terminalErr.Error())
-			return reconcile.TerminalError(terminalErr)
 		}
 	}
 
-	// Validate artifact names are unique
+	// Validate output artifact.
 	nameMap := make(map[string]bool)
 	for _, artifact := range obj.Spec.OutputArtifacts {
+		// Check for duplicate artifact names.
 		if nameMap[artifact.Name] {
-			terminalErr := fmt.Errorf("duplicate artifact name '%s' found", artifact.Name)
-			conditions.MarkFalse(obj,
-				meta.ReadyCondition,
+			return r.newTerminalErrorFor(obj,
 				swapi.ValidationFailedReason,
-				"%s", terminalErr.Error())
-			conditions.MarkStalled(obj,
+				"duplicate artifact name '%s' found", artifact.Name)
+		}
+
+		// Check that the revision source alias exists.
+		if artifact.Revision != "" && !aliasMap[strings.TrimPrefix(artifact.Revision, "@")] {
+			return r.newTerminalErrorFor(obj,
 				swapi.ValidationFailedReason,
-				"%s", terminalErr.Error())
-			r.Event(obj, corev1.EventTypeWarning, swapi.ValidationFailedReason, terminalErr.Error())
-			return reconcile.TerminalError(terminalErr)
+				"artifact %s revision source alias '%s' not found",
+				artifact.Name, strings.TrimPrefix(artifact.Revision, "@"))
 		}
 		nameMap[artifact.Name] = true
 	}

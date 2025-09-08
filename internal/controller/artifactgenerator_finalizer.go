@@ -22,11 +22,13 @@ import (
 
 	"github.com/fluxcd/pkg/artifact/storage"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -164,4 +166,16 @@ func (r *ArtifactGeneratorReconciler) patch(ctx context.Context,
 	}
 
 	return nil
+}
+
+// newTerminalErrorFor returns a terminal error, sets the Ready condition to False
+// with the provided reason and message, marks the object as Stalled, and records
+// a warning event.
+func (r *ArtifactGeneratorReconciler) newTerminalErrorFor(obj *swapi.ArtifactGenerator,
+	reason string, messageFormat string, messageArgs ...any) error {
+	terminalErr := fmt.Errorf(messageFormat, messageArgs...)
+	conditions.MarkFalse(obj, meta.ReadyCondition, reason, "%s", terminalErr.Error())
+	conditions.MarkStalled(obj, reason, "%s", terminalErr.Error())
+	r.Event(obj, corev1.EventTypeWarning, reason, terminalErr.Error())
+	return reconcile.TerminalError(terminalErr)
 }

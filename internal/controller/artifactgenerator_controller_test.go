@@ -116,11 +116,6 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 
 		t.Log(objToYaml(externalArtifact))
 
-		// Verify owner references
-		g.Expect(externalArtifact.OwnerReferences).To(HaveLen(1))
-		g.Expect(externalArtifact.OwnerReferences[0].UID).To(Equal(obj.GetUID()))
-		g.Expect(externalArtifact.OwnerReferences[0].Kind).To(Equal(swapi.ArtifactGeneratorKind))
-
 		// Verify source reference
 		g.Expect(externalArtifact.Spec.SourceRef.Kind).To(Equal(swapi.ArtifactGeneratorKind))
 		g.Expect(externalArtifact.Spec.SourceRef.Name).To(Equal(obj.Name))
