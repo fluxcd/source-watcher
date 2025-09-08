@@ -56,15 +56,13 @@ metadata:
   name: my-app
   namespace: apps
 spec:
+  interval: 30m
   targetNamespace: apps
   sourceRef:
     kind: ExternalArtifact
     name: my-app-composite
   path: "./my-app"
-  interval: 30m
-  timeout: 5m
   prune: true
-  wait: true
 ```
 
 Every time one of the sources is updated, a new artifact revision will be generated
@@ -160,11 +158,11 @@ metadata:
   name: backend
   namespace: apps
 spec:
+  interval: 30m
   sourceRef:
     kind: ExternalArtifact
     name: backend
   path: "./"
-  interval: 30m
   prune: true
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -173,11 +171,11 @@ metadata:
   name: frontend
   namespace: apps
 spec:
+  interval: 30m
   sourceRef:
     kind: ExternalArtifact
     name: frontend
   path: "./"
-  interval: 30m
   prune: true
 ```
 
@@ -186,10 +184,13 @@ If the manifests in `deploy/frontend/` directory are modified, only the `fronten
 receive a new revision, triggering the Flux Kustomization that applies it.
 While the `backend` artifact remains unchanged and its Kustomization will not reconcile.
 
-## Writing an ArtifactGenerator spec
+## Writing an ArtifactGenerator
 
-As with all other Kubernetes config, an ArtifactGenerator needs `apiVersion`,
-`kind`, `metadata.name` and `metadata.namespace` fields.
+As with all other Kubernetes config, an ArtifactGenerator needs `apiVersion`,`kind`,
+`metadata.name` and `metadata.namespace` fields.
+
+The `spec` field defines the desired state of the ArtifactGenerator, while the `status`
+field reports the latest observed state.
 
 ### Sources
 
@@ -266,7 +267,37 @@ Copy operation behavior:
 - Destination paths are relative to the root of the generated artifact, and must start with `@artifact/`.
 - Destination paths ending with `/` indicate a directory, otherwise it's treated as a file.
 
-## ArtifactGenerator status
+## Working with ArtifactGenerators
+
+### Suspend and Resume Reconciliation
+
+You can temporarily suspend the reconciliation of an ArtifactGenerator by setting
+the following annotation on the resource:
+
+```yaml
+metadata:
+  annotations:
+    source.extensions.fluxcd.io/reconcile: "Disable"
+```
+
+To resume reconciliation, remove the annotation or set its value to `"Enable"`.
+
+### Trigger Reconciliation
+
+You can manually trigger a reconciliation of an ArtifactGenerator by adding
+the following annotation to the resource:
+
+```yaml
+metadata:
+  annotations:
+    reconcile.fluxcd.io/requestedAt: "<timestamp>"
+```
+
+The controller will pick up the annotation and start a reconciliation as soon as possible.
+After the reconciliation is complete, the controller sets the timestamp from the annotation
+in the `.status.lastHandledReconcileAt` field.
+
+## ArtifactGenerator Status
 
 The ArtifactGenerator reports the latest synchronized state in the `.status` field.
 
