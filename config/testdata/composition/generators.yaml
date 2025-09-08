@@ -1,0 +1,21 @@
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: podinfo-gen
+spec:
+  sources:
+    - alias: chart
+      kind: OCIRepository
+      name: podinfo-chart
+    - alias: repo
+      kind: GitRepository
+      name: podinfo-values
+  artifacts:
+    - name: podinfo
+      revision: "@chart"
+      copy:
+        - from: "@chart/**"
+          to: "@artifact/"
+        - from: "@repo/charts/podinfo/values/values-prod.yaml"
+          to: "@artifact/values.yaml"

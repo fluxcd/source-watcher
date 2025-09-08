@@ -19,7 +19,6 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
     spec:
-      serviceAccountName: source-watcher
       terminationGracePeriodSeconds: 10
       containers:
         - name: manager
@@ -79,4 +78,3 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-

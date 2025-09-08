@@ -1,0 +1,23 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: podinfo-chart
+spec:
+  interval: 10m
+  url: oci://ghcr.io/stefanprodan/charts/podinfo
+  layerSelector:
+    mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+    operation: copy
+  ref:
+    semver: ">=6.9.0"
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: podinfo-repo
+spec:
+  interval: 10m
+  url: https://github.com/stefanprodan/podinfo
+  ref:
+    semver: ">=6.9.0"

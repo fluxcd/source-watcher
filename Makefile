@@ -92,6 +92,13 @@ manifests: controller-gen  ## Generate manifests, e.g. CRD, RBAC, etc.
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths="./..." output:crd:artifacts:config="config/crd/bases"
 	cd api; $(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths="./..." output:crd:artifacts:config="../config/crd/bases"
 
+# Deploy controller dev image in the configured Kubernetes cluster in ~/.kube/config
+dev-deploy: manifests
+	mkdir -p config/dev && cp config/default/* config/dev
+	cd config/dev && kustomize edit set image fluxcd/source-watcher=${IMG}
+	kustomize build config/dev | kubectl apply -f -
+	rm -rf config/dev
+
 # Run go tidy to cleanup go.mod
 tidy:
 	rm -f go.sum; go mod tidy -compat=1.25
