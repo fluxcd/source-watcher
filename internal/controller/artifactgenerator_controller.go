@@ -107,23 +107,9 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	// Enforce multi-tenancy lockdown if configured to do so.
-	if r.NoCrossNamespaceRefs {
-		for _, src := range obj.Spec.Sources {
-			if src.Namespace != "" && src.Namespace != obj.Namespace {
-				terminalErr := fmt.Errorf("cross-namespace reference to source %s/%s/%s is not allowed",
-					src.Kind, src.Namespace, src.Name)
-				conditions.MarkFalse(obj,
-					meta.ReadyCondition,
-					swapi.AccessDeniedReason,
-					"%s", terminalErr.Error())
-				conditions.MarkStalled(obj,
-					swapi.AccessDeniedReason,
-					"%s", terminalErr.Error())
-				r.Event(obj, corev1.EventTypeWarning, swapi.AccessDeniedReason, terminalErr.Error())
-				return ctrl.Result{}, reconcile.TerminalError(terminalErr)
-			}
-		}
+	// Validate the ArtifactGenerator spec
+	if err := r.validateSpec(obj); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return r.reconcile(ctx, obj, patcher)
@@ -423,4 +409,61 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	}
 
 	return orphaned
+}
+
+// validateSpec validates the ArtifactGenerator spec for uniqueness and multi-tenancy constraints.
+func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator) error {
+	// Validate source aliases are unique and enforce multi-tenancy lockdown if configured.
+	aliasMap := make(map[string]bool)
+	for _, src := range obj.Spec.Sources {
+		// Check for duplicate aliases
+		if aliasMap[src.Alias] {
+			terminalErr := fmt.Errorf("duplicate source alias '%s' found", src.Alias)
+			conditions.MarkFalse(obj,
+				meta.ReadyCondition,
+				swapi.ValidationFailedReason,
+				"%s", terminalErr.Error())
+			conditions.MarkStalled(obj,
+				swapi.ValidationFailedReason,
+				"%s", terminalErr.Error())
+			r.Event(obj, corev1.EventTypeWarning, swapi.ValidationFailedReason, terminalErr.Error())
+			return reconcile.TerminalError(terminalErr)
+		}
+		aliasMap[src.Alias] = true
+
+		// Enforce multi-tenancy lockdown if configured
+		if r.NoCrossNamespaceRefs && src.Namespace != "" && src.Namespace != obj.Namespace {
+			terminalErr := fmt.Errorf("cross-namespace reference to source %s/%s/%s is not allowed",
+				src.Kind, src.Namespace, src.Name)
+			conditions.MarkFalse(obj,
+				meta.ReadyCondition,
+				swapi.AccessDeniedReason,
+				"%s", terminalErr.Error())
+			conditions.MarkStalled(obj,
+				swapi.AccessDeniedReason,
+				"%s", terminalErr.Error())
+			r.Event(obj, corev1.EventTypeWarning, swapi.AccessDeniedReason, terminalErr.Error())
+			return reconcile.TerminalError(terminalErr)
+		}
+	}
+
+	// Validate artifact names are unique
+	nameMap := make(map[string]bool)
+	for _, artifact := range obj.Spec.OutputArtifacts {
+		if nameMap[artifact.Name] {
+			terminalErr := fmt.Errorf("duplicate artifact name '%s' found", artifact.Name)
+			conditions.MarkFalse(obj,
+				meta.ReadyCondition,
+				swapi.ValidationFailedReason,
+				"%s", terminalErr.Error())
+			conditions.MarkStalled(obj,
+				swapi.ValidationFailedReason,
+				"%s", terminalErr.Error())
+			r.Event(obj, corev1.EventTypeWarning, swapi.ValidationFailedReason, terminalErr.Error())
+			return reconcile.TerminalError(terminalErr)
+		}
+		nameMap[artifact.Name] = true
+	}
+
+	return nil
 }

@@ -1,6 +1,6 @@
 # Artifact Generators
 
-<!-- menuweight:100 -->
+<!-- menuweight:110 -->
 
 The ArtifactGenerator is an extension of Flux APIs that allows source composition and decomposition.
 It enables the generation of [ExternalArtifacts][externalartifact] from multiple sources
@@ -69,6 +69,56 @@ spec:
 
 Every time one of the sources is updated, a new artifact revision will be generated
 with the latest content and the Flux Kustomization will automatically reconcile it.
+
+## Helm Chart Composition Example
+
+The following example shows how to compose a Helm chart from multiple sources:
+
+```yaml
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: podinfo
+  namespace: apps
+spec:
+  sources:
+    - alias: chart
+      kind: OCIRepository
+      name: podinfo-chart
+      namespace: apps
+    - alias: repo
+      kind: GitRepository
+      name: podinfo-values
+      namespace: apps
+  artifacts:
+    - name: podinfo-composite
+      revision: "@chart"
+      copy:
+        - from: "@chart/**"
+          to: "@artifact/"
+        - from: "@repo/charts/podinfo/values/values-prod.yaml"
+          to: "@artifact/values.yaml"
+```
+
+The above generator will create an ExternalArtifact named `podinfo-composite` in the `apps` namespace,
+which contains the Helm chart from the `podinfo-chart` OCI repository with the `values.yaml` overwritten
+by the `values-prod.yaml` file from the Git repository.
+
+The generated ExternalArtifact can be deployed using a Flux HelmRelease, for example:
+
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: podinfo
+  namespace: apps
+spec:
+  interval: 10m
+  releaseName: podinfo
+  chartRef:
+    kind: ExternalArtifact
+    name: podinfo-composite
+```
 
 ## Source Decomposition Example
 
@@ -146,7 +196,9 @@ As with all other Kubernetes config, an ArtifactGenerator needs `apiVersion`,
 The `.spec.sources` field defines the Flux source-controller resources that will be used as inputs
 for artifact generation. Each source must specify:
 
-- `alias`: A unique identifier used to reference the source in copy operations (e.g., `@alias/path`)
+- `alias`: A unique identifier used to reference the source in copy operations.
+   Alias names must be unique within the same ArtifactGenerator and can only contain
+   alphanumeric characters, dashes and underscores.
 - `kind`: The type of Flux source resource (`GitRepository`, `OCIRepository`, or `Bucket`)
 - `name`: The name of the source resource
 - `namespace` (optional): The namespace of the source resource if different from the ArtifactGenerator namespace
@@ -176,7 +228,8 @@ regenerate the affected artifacts automatically.
 The `.spec.artifacts` field defines the list of ExternalArtifacts to be generated from the sources.
 Each artifact must specify:
 
-- `name`: The name of the generated ExternalArtifact resource.
+- `name`: The name of the generated ExternalArtifact resource. It must be unique in the context
+  of the ArtifactGenerator and must conform to Kubernetes resource naming conventions.
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
 - `copy`: A list of copy operations to perform from sources to the artifact.
@@ -210,7 +263,8 @@ Copy operation behavior:
 - Later operations can overwrite files created by earlier operations.
 - Glob patterns support `*` (single directory) and `**` (recursive directories).
 - Source paths are relative to the root of the source artifact.
-- Destination paths are relative to the root of the generated artifact.
+- Destination paths are relative to the root of the generated artifact, and must start with `@artifact/`.
+- Destination paths ending with `/` indicate a directory, otherwise it's treated as a file.
 
 ## ArtifactGenerator status
 
@@ -253,32 +307,41 @@ following attributes in the OCIRepository's `.status.conditions`:
 - `reason: Succeeded`
 
 This `Ready` Condition will retain a status value of `"True"` until the
-ArtifactGenerator is marked as [reconciling](#reconciling-ocirepository), or e.g. a
-[transient error](#failed-ocirepository) occurs.
+ArtifactGenerator is marked as [reconciling](#reconciling-artifactgenerator), or e.g. a
+[transient error](#failed-artifactgenerator) occurs.
 
 #### Failed ArtifactGenerator
 
-The controller may get stuck trying to produce artifacts.
-This can occur due to some of the following factors:
+The controller may encounter errors while attempting to produce and store
+artifacts. These errors can be transient or terminal, such as:
 
 - The Flux source-controller is unreachable (e.g. network issues).
 - One of the referenced sources is not found or access is denied.
-- The copy operation fails due to invalid glob patterns or missing files.
+- The copy operation fails due to duplicate aliases, invalid glob patterns or missing files.
 - A storage related failure when storing the artifacts.
 
-When this happens, the controller sets the `Ready` Condition status to `False`,
+When an error occurs, the controller sets the `Ready` Condition status to `False`,
 with one of the following reasons:
 
 - `type: Ready`
 - `status: "False"`
-- `reason: ArtifactFailed | AccessDenied | BuildFaild | ReconciliationFailed`
+- `reason: AccessDenied | ArtifactFailed | BuildFaild | ReconciliationFailed`
 
-In addition, the controller sets the `Stalled` Condition to `True` if the
-failure is terminal (e.g. misconfiguration):
+Transient errors (e.g. network issues) will cause the controller to
+retry the reconciliation after a backoff period, while terminal errors
+(e.g. access denied, invalid spec) will cause the controller to
+mark the ArtifactGenerator as [stalled](#stalled-artifactgenerator).
+
+#### Stalled ArtifactGenerator
+
+The controller marks an ArtifactGenerator as _stalled_ when it encounters
+a terminal failure that prevents it from making progress.
+
+When the ArtifactGenerator is stalled, the controller sets the following condition:
 
 - `type: Stalled`
 - `status: "True"`
-- `reason: AccessDenied | BuildFaild`
+- `reason: AccessDenied | ValidationFailed`
 
 ### Inventory
 
