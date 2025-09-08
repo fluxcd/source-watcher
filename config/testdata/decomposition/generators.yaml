@@ -1,0 +1,22 @@
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: app-gen
+spec:
+  sources:
+    - alias: oci
+      kind: OCIRepository
+      name: podinfo-oci
+    - alias: repo
+      kind: GitRepository
+      name: podinfo-repo
+  artifacts:
+    - name: podinfo-svc
+      copy:
+        - from: "@repo/kustomize/service.yaml"
+          to: "@artifact/service.yaml"
+    - name: podinfo-deploy
+      copy:
+        - from: "@repo/kustomize/deployment.yaml"
+          to: "@artifact/deployment.yaml"

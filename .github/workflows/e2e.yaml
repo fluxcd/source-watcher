@@ -51,15 +51,22 @@ jobs:
       - name: Deploy controllers
         run: |
           make dev-deploy IMG=test/source-watcher:latest
-          kubectl -n kustomize-system rollout status deploy/source-controller --timeout=1m
-          kubectl -n kustomize-system rollout status deploy/source-watcher --timeout=1m
-      - name: Composition tests
+          kubectl -n source-system rollout status deploy/source-controller --timeout=1m
+          kubectl -n source-system rollout status deploy/source-watcher --timeout=1m
+      - name: Source composition tests
         run: |
           kubectl apply -k config/testdata/composition
-          kubectl -n composition wait artifactgenerator/podinfo-gen --for=condition=ready --timeout=1m
+          kubectl -n composition wait artifactgenerator/chart-gen --for=condition=ready --timeout=1m
           kubectl -n composition get artifactgenerators -o yaml
           kubectl -n composition get externalartifacts -o yaml
+      - name: Source decomposition tests
+        run: |
+          kubectl apply -k config/testdata/decomposition
+          kubectl -n decomposition wait artifactgenerator/app-gen --for=condition=ready --timeout=1m
+          kubectl -n decomposition get artifactgenerators -o yaml
+          kubectl -n decomposition get externalartifacts -o yaml
       - name: Logs
+        if: always()
         run: |
           kubectl -n source-system logs deploy/source-controller
           kubectl -n source-system logs deploy/source-watcher

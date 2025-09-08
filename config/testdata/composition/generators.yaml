@@ -2,7 +2,7 @@
 apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator
 metadata:
-  name: podinfo-gen
+  name: chart-gen
 spec:
   sources:
     - alias: chart
@@ -10,7 +10,7 @@ spec:
       name: podinfo-chart
     - alias: repo
       kind: GitRepository
-      name: podinfo-values
+      name: podinfo-repo
   artifacts:
     - name: podinfo
       revision: "@chart"
