@@ -140,9 +140,9 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		msg := fmt.Sprintf("fetch sources failed: %s", err.Error())
 		conditions.MarkFalse(obj,
 			meta.ReadyCondition,
-			meta.ArtifactFailedReason,
+			swapi.SourceFetchFailedReason,
 			"%s", msg)
-		r.Event(obj, corev1.EventTypeWarning, meta.ArtifactFailedReason, msg)
+		r.Event(obj, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, msg)
 		log.Error(err, "failed to fetch sources, retrying")
 		return ctrl.Result{RequeueAfter: r.DependencyRequeueInterval}, nil
 	}
@@ -286,6 +286,10 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 		default:
 			return nil, nil, fmt.Errorf("source `%s` kind '%s' not supported",
 				src.Name, src.Kind)
+		}
+
+		if source.GetArtifact() == nil {
+			return nil, nil, fmt.Errorf("source '%s/%s' is not ready", src.Kind, namespacedName)
 		}
 
 		// Create a dir for the source alias.

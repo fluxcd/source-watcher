@@ -32,6 +32,7 @@ const (
 	ReconciliationDisabledReason = "ReconciliationDisabled"
 	AccessDeniedReason           = "AccessDenied"
 	ValidationFailedReason       = "ValidationFailed"
+	SourceFetchFailedReason      = "SourceFetchFailed"
 	EnabledValue                 = "enabled"
 	DisabledValue                = "disabled"
 )

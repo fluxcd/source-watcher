@@ -103,6 +103,8 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 	return artifact.DeepCopy(), nil
 }
 
+// applyCopyOperations applies a list of copy operations from the sources to the staging directory.
+// The operations are applied in the order of the ops array, and any error will stop the process.
 func applyCopyOperations(ctx context.Context, operations []swapi.CopyOperation, sources map[string]string, stagingDir string) error {
 	for _, op := range operations {
 		if err := ctx.Err(); err != nil {
@@ -115,6 +117,7 @@ func applyCopyOperations(ctx context.Context, operations []swapi.CopyOperation, 
 	return nil
 }
 
+// applyCopyOperation applies a single copy operation from the sources to the staging directory.
 func applyCopyOperation(ctx context.Context, op swapi.CopyOperation, sources map[string]string, stagingDir string) error {
 	srcAlias, srcPattern, err := parseCopySource(op.From)
 	if err != nil {
@@ -167,6 +170,7 @@ func applyCopyOperation(ctx context.Context, op swapi.CopyOperation, sources map
 	return nil
 }
 
+// parseCopySource parses the source string and returns the alias and pattern.
 func parseCopySource(from string) (alias, pattern string, err error) {
 	if !strings.HasPrefix(from, "@") {
 		return "", "", fmt.Errorf("source must start with '@'")
@@ -181,7 +185,7 @@ func parseCopySource(from string) (alias, pattern string, err error) {
 }
 
 // parseCopyDestinationRelative parses the destination path and returns the relative path
-// without joining it to the staging directory (for use with os.Root)
+// without joining it to the staging directory (for use with os.Root).
 func parseCopyDestinationRelative(to string) (string, error) {
 	if !strings.HasPrefix(to, "@artifact/") {
 		return "", fmt.Errorf("destination must start with '@artifact/'")
@@ -190,7 +194,7 @@ func parseCopyDestinationRelative(to string) (string, error) {
 	return strings.TrimPrefix(to, "@artifact/"), nil
 }
 
-// copyFileWithRoots copies a file from srcRoot to stagingRoot using secure root operations
+// copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root.
 func copyFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
@@ -204,7 +208,7 @@ func copyFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, st
 	return copyRegularFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
 }
 
-// copyRegularFileWithRoots copies a regular file using secure root operations
+// copyRegularFileWithRoots copies a regular file using os.Root.
 func copyRegularFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -247,7 +251,7 @@ func copyRegularFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath str
 	return destFile.Chmod(srcInfo.Mode())
 }
 
-// copyDirWithRoots copies a directory recursively using secure root operations
+// copyDirWithRoots copies a directory recursively using os.Root.
 func copyDirWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
 	return fs.WalkDir(srcRoot.FS(), srcPath, func(path string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
@@ -280,10 +284,7 @@ func copyDirWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, sta
 	})
 }
 
-// MkdirTempAbs creates a tmp dir and returns the absolute path to the dir.
-// This is required since certain OSes like MacOS create temporary files in
-// e.g. `/private/var`, to which `/var` is a symlink.
-// createDirRecursive creates a directory and all its parents using os.Root
+// createDirRecursive creates a directory and all its parents using os.Root.
 func createDirRecursive(root *os.Root, path string) error {
 	if path == "." || path == "" {
 		return nil

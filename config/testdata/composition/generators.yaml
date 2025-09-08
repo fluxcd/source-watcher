@@ -17,5 +17,5 @@ spec:
       copy:
         - from: "@chart/**"
           to: "@artifact/"
-        - from: "@repo/charts/podinfo/values/values-prod.yaml"
+        - from: "@repo/charts/podinfo/values-prod.yaml"
           to: "@artifact/values.yaml"

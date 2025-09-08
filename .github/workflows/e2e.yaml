@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - main
-      - v2
-      - test*
 
 jobs:
   kind:
@@ -56,13 +54,13 @@ jobs:
       - name: Source composition tests
         run: |
           kubectl apply -k config/testdata/composition
-          kubectl -n composition wait artifactgenerator/chart-gen --for=condition=ready --timeout=1m
+          kubectl -n composition wait artifactgenerator -l role=test --for=condition=ready --timeout=1m
           kubectl -n composition get artifactgenerators -o yaml
           kubectl -n composition get externalartifacts -o yaml
       - name: Source decomposition tests
         run: |
           kubectl apply -k config/testdata/decomposition
-          kubectl -n decomposition wait artifactgenerator/app-gen --for=condition=ready --timeout=1m
+          kubectl -n decomposition wait artifactgenerator -l role=test --for=condition=ready --timeout=1m
           kubectl -n decomposition get artifactgenerators -o yaml
           kubectl -n decomposition get externalartifacts -o yaml
       - name: Logs

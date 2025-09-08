@@ -96,7 +96,7 @@ spec:
       copy:
         - from: "@chart/**"
           to: "@artifact/"
-        - from: "@repo/charts/podinfo/values/values-prod.yaml"
+        - from: "@repo/charts/podinfo/values-prod.yaml"
           to: "@artifact/values.yaml"
 ```
 
@@ -325,7 +325,7 @@ with one of the following reasons:
 
 - `type: Ready`
 - `status: "False"`
-- `reason: AccessDenied | ArtifactFailed | BuildFaild | ReconciliationFailed`
+- `reason: BuildFaild | SourceFetchFailed | ReconciliationFailed`
 
 Transient errors (e.g. network issues) will cause the controller to
 retry the reconciliation after a backoff period, while terminal errors
