@@ -236,6 +236,11 @@ spec:
                   reconcile request value, so a change of the annotation value
                   can be detected.
                 type: string
+              observedSourcesDigest:
+                description: |-
+                  ObservedSourcesDigest is a hash representing the current state of
+                  all the sources referenced by the ArtifactGenerator.
+                type: string
             type: object
         type: object
     served: true

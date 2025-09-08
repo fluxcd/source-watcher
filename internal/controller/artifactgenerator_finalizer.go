@@ -19,9 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/fluxcd/pkg/artifact/storage"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,8 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/artifact/storage"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -119,8 +120,9 @@ func (r *ArtifactGeneratorReconciler) finalizeStatus(ctx context.Context,
 	return r.patch(ctx, obj, patcher)
 }
 
-// addFinalizer sets the initial status conditions and adds the finalizer.
-func (r *ArtifactGeneratorReconciler) addFinalizer(obj *swapi.ArtifactGenerator) {
+// addFinalizer sets the initial status conditions, adds the finalizer
+// and requests an immediate requeue.
+func (r *ArtifactGeneratorReconciler) addFinalizer(obj *swapi.ArtifactGenerator) (ctrl.Result, error) {
 	controllerutil.AddFinalizer(obj, swapi.Finalizer)
 	if obj.IsDisabled() {
 		conditions.MarkTrue(obj,
@@ -136,6 +138,8 @@ func (r *ArtifactGeneratorReconciler) addFinalizer(obj *swapi.ArtifactGenerator)
 			meta.ProgressingReason,
 			"%s", msgInProgress)
 	}
+
+	return ctrl.Result{RequeueAfter: time.Millisecond}, nil
 }
 
 // patch updates the object status, conditions and finalizers.

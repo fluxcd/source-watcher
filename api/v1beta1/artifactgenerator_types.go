@@ -137,6 +137,47 @@ type ArtifactGeneratorStatus struct {
 	// Inventory contains the list of generated ExternalArtifact references.
 	// +optional
 	Inventory []meta.NamespacedObjectKindReference `json:"inventory,omitempty"`
+
+	// ObservedSourcesDigest is a hash representing the current state of
+	// all the sources referenced by the ArtifactGenerator.
+	// +optional
+	ObservedSourcesDigest string `json:"observedSourcesDigest,omitempty"`
+}
+
+// ExternalArtifactReference contains the reference to a
+// generated ExternalArtifact along with its digest.
+type ExternalArtifactReference struct {
+	// API version of the referent artifact.
+	// +required
+	APIVersion string `json:"apiVersion,omitempty"`
+
+	// Kind of the referent artifact.
+	// +required
+	Kind string `json:"kind"`
+
+	// Name of the referent artifact.
+	// +required
+	Name string `json:"name"`
+
+	// Namespace of the referent artifact.
+	// +required
+	Namespace string `json:"namespace"`
+
+	// Digest of the referent artifact.
+	// +required
+	Digest string `json:"digest"`
+}
+
+// ObservedSource contains the observed state of an upstream source.
+type ObservedSource struct {
+	// Digest is the artifact digest of the upstream source.
+	Digest string `json:"digest"`
+
+	// Revision is the artifact revision of the upstream source.
+	Revision string `json:"revision"`
+
+	// URL is the artifact URL of the upstream source.
+	URL string `json:"url"`
 }
 
 // GetConditions returns the status conditions of the object.

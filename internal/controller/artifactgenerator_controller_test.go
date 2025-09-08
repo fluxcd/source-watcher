@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,6 +98,10 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(conditions.IsReady(obj)).To(BeTrue())
 	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(meta.SucceededReason))
 
+	// Verify that ObservedSourcesDigest is set
+	g.Expect(obj.Status.ObservedSourcesDigest).ToNot(BeEmpty())
+	observedSourcesDigest := obj.Status.ObservedSourcesDigest
+
 	// Verify inventory contains both output artifacts
 	g.Expect(obj.Status.Inventory).To(HaveLen(2))
 	g.Expect(obj.Status.Inventory[0].Kind).To(Equal(sourcev1.ExternalArtifactKind))
@@ -145,6 +150,14 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	})
 	g.Expect(err).ToNot(HaveOccurred())
 
+	// Read the object to get the latest inventory
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Verify that ObservedSourcesDigest was updated
+	g.Expect(obj.Status.ObservedSourcesDigest).ToNot(BeIdenticalTo(observedSourcesDigest))
+	observedSourcesDigest = obj.Status.ObservedSourcesDigest
+
 	// Verify garbage collection keeps 2 versions per artifact
 	archives, err := findArtifactsInStorage(obj.Namespace)
 	g.Expect(err).ToNot(HaveOccurred())
@@ -192,6 +205,9 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	err = testClient.Get(ctx, objKey, obj)
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(obj.Status.Inventory).To(HaveLen(1))
+
+	// Verify that ObservedSourcesDigest did not change
+	g.Expect(obj.Status.ObservedSourcesDigest).To(BeIdenticalTo(observedSourcesDigest))
 
 	// Verify the ExternalArtifact object was deleted
 	deletedArtifact := &sourcev1.ExternalArtifact{}
@@ -377,6 +393,8 @@ func TestResourceSetReconciler_Finalize_Disabled(t *testing.T) {
 }
 
 func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
+	reconciler := getArtifactGeneratorReconciler()
+
 	tests := []struct {
 		name        string
 		setupFunc   func() (*swapi.ArtifactGenerator, func())
@@ -579,12 +597,14 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 			generator, cleanup := tt.setupFunc()
 			defer cleanup()
 
-			reconciler := getArtifactGeneratorReconciler()
 			tmpDir := t.TempDir()
 
-			ctx := context.Background()
-			result, _, err := reconciler.fetchSources(ctx, generator, tmpDir)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
 
+			remoteSources, getErr := reconciler.observeSources(ctx, generator)
+			result, fetchErr := reconciler.fetchSources(ctx, remoteSources, tmpDir)
+			err := errors.Join(getErr, fetchErr)
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
