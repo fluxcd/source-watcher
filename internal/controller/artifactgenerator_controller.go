@@ -149,6 +149,30 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// Calculate the hash of the observed sources.
 	observedSourcesDigest := r.hashObservedSources(remoteSources)
 
+	// Detect drift between the actual state and the desired state.
+	// If no drift is detected in sources and the stored artifacts pass the
+	// integrity verification, the reconciliation is complete and we can exit early.
+	hasDrifted, reason := r.detectDrift(ctx, obj, observedSourcesDigest)
+	if !hasDrifted {
+		msg := fmt.Sprintf("No drift detected, %d artifact(s) up to date", len(obj.Status.Inventory))
+		log.Info(msg)
+		r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
+		return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
+	}
+
+	// Mark the object as reconciling and remove any previous error conditions.
+	conditions.MarkReconciling(obj,
+		meta.ProgressingReason,
+		"%s", msgInProgress)
+	conditions.MarkUnknown(obj,
+		meta.ReadyCondition,
+		meta.ProgressingReason,
+		"%s", msgInProgress)
+	log.Info(msgInProgress, "reason", reason)
+	if err := r.patch(ctx, obj, patcher); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
+	}
+
 	// Download and extract the sources artifacts into the tmpDir.
 	// The contents will be placed in subdirectories named after the source alias:
 	// <tmpDir>/<source-alias>/<source-files>
@@ -311,7 +335,7 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) hashObservedSources(sources map[string]swapi.ObservedSource) string {
 	parts := make([]string, 0, len(sources))
 	for alias, src := range sources {
-		parts = append(parts, fmt.Sprintf("%s=%s", alias, src.Digest))
+		parts = append(parts, fmt.Sprintf("%s=%s&%s", alias, src.Digest, src.Revision))
 	}
 	sort.Strings(parts)
 	return digest.FromString(strings.Join(parts, "|")).String()
@@ -358,7 +382,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	artifact *meta.Artifact) (*swapi.ExternalArtifactReference, error) {
 	log := ctrl.LoggerFrom(ctx)
 	// Create the ExternalArtifact object.
-	externalArtifact := &sourcev1.ExternalArtifact{
+	ea := &sourcev1.ExternalArtifact{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: sourcev1.GroupVersion.String(),
 			Kind:       sourcev1.ExternalArtifactKind,
@@ -380,7 +404,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 
 	// Apply the ExternalArtifact object.
 	forceApply := true
-	if err := r.Patch(ctx, externalArtifact, client.Apply, &client.PatchOptions{
+	if err := r.Patch(ctx, ea, client.Apply, &client.PatchOptions{
 		FieldManager: r.ControllerName,
 		Force:        &forceApply,
 	}); err != nil {
@@ -388,12 +412,12 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	}
 
 	// Update the status of the ExternalArtifact with the artifact details.
-	externalArtifact.ManagedFields = nil
-	externalArtifact.Status = sourcev1.ExternalArtifactStatus{
+	ea.ManagedFields = nil
+	ea.Status = sourcev1.ExternalArtifactStatus{
 		Artifact: artifact,
 		Conditions: []metav1.Condition{
 			{
-				ObservedGeneration: externalArtifact.GetGeneration(),
+				ObservedGeneration: ea.GetGeneration(),
 				Type:               meta.ReadyCondition,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
@@ -407,17 +431,22 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 			FieldManager: r.ControllerName,
 		},
 	}
-	if err := r.Status().Patch(ctx, externalArtifact, client.Apply, statusOpts); err != nil {
+	if err := r.Status().Patch(ctx, ea, client.Apply, statusOpts); err != nil {
 		return nil, fmt.Errorf("failed to patch ExternalArtifact status: %w", err)
 	}
 
-	log.Info(fmt.Sprintf("ExternalArtifact/%s/%s reconciled with revision %s",
-		externalArtifact.Namespace, externalArtifact.Name, artifact.Revision))
+	if obj.HasArtifactInInventory(ea.Kind, ea.Name, ea.Namespace, artifact.Digest) {
+		log.Info(fmt.Sprintf("%s/%s/%s is up to date",
+			ea.Kind, ea.Namespace, ea.Name))
+	} else {
+		log.Info(fmt.Sprintf("%s/%s/%s reconciled with revision %s",
+			ea.Kind, ea.Namespace, ea.Name, artifact.Revision))
+	}
 
 	return &swapi.ExternalArtifactReference{
 		Kind:      sourcev1.ExternalArtifactKind,
-		Name:      externalArtifact.Name,
-		Namespace: externalArtifact.Namespace,
+		Name:      ea.Name,
+		Namespace: ea.Namespace,
 		Digest:    artifact.Digest,
 		Filename:  filepath.Base(artifact.Path),
 	}, nil
@@ -490,4 +519,72 @@ func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator)
 	}
 
 	return nil
+}
+
+// detectDrift checks if the actual state matches the desired and last reconciled state.
+//
+// Returns (hasDrift, reason) where reason can be one of:
+//   - "NotReady" - object is not in Ready condition
+//   - "GenerationChanged" - object generation differs from observed generation
+//   - "SourcesChanged" - sources digest has changed
+//   - "ArtifactsChanged" - number of artifacts in spec differs from inventory
+//   - "ArtifactMissing" - artifact is missing from storage
+//   - "ArtifactCorrupted" - artifact exists but fails integrity verification
+//   - "NoDriftDetected" - no drift detected and the storage is up to date
+func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
+	currentSourcesDigest string) (bool, string) {
+	// Setup logger on debug level.
+	log := ctrl.LoggerFrom(ctx).V(1)
+
+	if conditions.IsFalse(obj, meta.ReadyCondition) {
+		log.Info("Drift detected, previous reconciliation failed")
+		return true, "NotReady"
+	}
+
+	if obj.GetGeneration() != conditions.GetObservedGeneration(obj, meta.ReadyCondition) {
+		log.Info("Drift detected, generation has changed",
+			"old", conditions.GetObservedGeneration(obj, meta.ReadyCondition),
+			"new", obj.GetGeneration())
+		return true, "GenerationChanged"
+	}
+
+	if obj.Status.ObservedSourcesDigest != currentSourcesDigest {
+		log.Info("Drift detected, sources have changed",
+			"old", obj.Status.ObservedSourcesDigest,
+			"new", currentSourcesDigest)
+		return true, "SourcesChanged"
+	}
+
+	if len(obj.Status.Inventory) != len(obj.Spec.OutputArtifacts) {
+		log.Info("Drift detected, number of output artifacts has changed",
+			"old", len(obj.Status.Inventory),
+			"new", len(obj.Spec.OutputArtifacts))
+		return true, "ArtifactsChanged"
+	}
+
+	for _, eaRef := range obj.Status.Inventory {
+		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
+		artifact := meta.Artifact{
+			Digest: eaRef.Digest,
+			Path:   storagePath,
+		}
+		if !r.Storage.ArtifactExist(artifact) {
+			log.Info("Drift detected, artifact missing from storage",
+				"artifact", fmt.Sprintf("%s/%s/%s", eaRef.Kind, eaRef.Namespace, eaRef.Name),
+				"path", storagePath)
+			return true, "ArtifactMissing"
+		}
+		if err := r.Storage.VerifyArtifact(artifact); err != nil {
+			log.Error(err, "Artifact integrity verification failed, deleting corrupted artifact",
+				"artifact", fmt.Sprintf("%s/%s/%s", eaRef.Kind, eaRef.Namespace, eaRef.Name))
+			if err := r.Storage.Remove(artifact); err != nil {
+				log.Error(err, "Failed to remove corrupted artifact from storage",
+					"artifact", fmt.Sprintf("%s/%s/%s", eaRef.Kind, eaRef.Namespace, eaRef.Name))
+			}
+			return true, "ArtifactCorrupted"
+		}
+	}
+
+	return false, "NoDriftDetected"
 }

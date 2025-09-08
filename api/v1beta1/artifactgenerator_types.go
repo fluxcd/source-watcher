@@ -207,6 +207,18 @@ func (in *ArtifactGenerator) IsDisabled() bool {
 	return ok && strings.ToLower(val) == DisabledValue
 }
 
+// HasArtifactInInventory returns true if the artifact with the given
+// kind, name, namespace, and digest exists in the inventory.
+func (in *ArtifactGenerator) HasArtifactInInventory(kind, name, namespace, digest string) bool {
+	for _, ref := range in.Status.Inventory {
+		if ref.Kind == kind && ref.Name == name &&
+			ref.Namespace == namespace && ref.Digest == digest {
+			return true
+		}
+	}
+	return false
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
