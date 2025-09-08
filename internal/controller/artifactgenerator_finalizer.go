@@ -63,7 +63,7 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 // referenced in the provided list, along with their associated
 // artifacts in the storage backend.
 func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Context,
-	refs []meta.NamespacedObjectKindReference) {
+	refs []swapi.ExternalArtifactReference) {
 	log := ctrl.LoggerFrom(ctx)
 
 	for _, eaRef := range refs {

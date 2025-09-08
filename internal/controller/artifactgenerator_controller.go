@@ -165,7 +165,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	}
 
 	// Prepare a slice to hold the references to the created ExternalArtifact objects.
-	extRefs := make([]meta.NamespacedObjectKindReference, 0, len(obj.Spec.OutputArtifacts))
+	eaRefs := make([]swapi.ExternalArtifactReference, 0, len(obj.Spec.OutputArtifacts))
 
 	// Build the artifacts and reconcile the ExternalArtifact objects.
 	// The artifacts will be stored in the storage under the following path:
@@ -194,7 +194,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		// Reconcile the ExternalArtifact corresponding to the built artifact.
 		// The ExternalArtifact will reference the artifact stored in the storage backend.
 		// If the ExternalArtifact already exists, its status will be updated with the new artifact details.
-		extRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact)
+		eaRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact)
 		if err != nil {
 			msg := fmt.Sprintf("%s reconcile failed: %s", oa.Name, err.Error())
 			conditions.MarkFalse(obj,
@@ -204,16 +204,16 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			r.Event(obj, corev1.EventTypeWarning, meta.ReconciliationFailedReason, msg)
 			return ctrl.Result{}, err
 		}
-		extRefs = append(extRefs, *extRef)
+		eaRefs = append(eaRefs, *eaRef)
 	}
 
 	// Garbage collect orphaned ExternalArtifacts and their associated artifacts in storage.
-	if orphans := r.findOrphanedReferences(obj.Status.Inventory, extRefs); len(orphans) > 0 {
+	if orphans := r.findOrphanedReferences(obj.Status.Inventory, eaRefs); len(orphans) > 0 {
 		r.finalizeExternalArtifacts(ctx, orphans)
 	}
 
 	// Garbage collect old artifacts in storage according to the retention policy.
-	for _, eaRef := range extRefs {
+	for _, eaRef := range eaRefs {
 		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "*")
 		delFiles, err := r.Storage.GarbageCollect(ctx, meta.Artifact{Path: storagePath}, 5*time.Minute)
 		if err != nil {
@@ -224,9 +224,9 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	}
 
 	// Update the status with to reflect the successful reconciliation.
-	obj.Status.Inventory = extRefs
+	obj.Status.Inventory = eaRefs
 	obj.Status.ObservedSourcesDigest = observedSourcesDigest
-	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifact(s)", len(extRefs))
+	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifact(s)", len(eaRefs))
 	conditions.MarkTrue(obj,
 		meta.ReadyCondition,
 		meta.SucceededReason,
@@ -355,7 +355,7 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	outputArtifact *swapi.OutputArtifact,
-	artifact *meta.Artifact) (*meta.NamespacedObjectKindReference, error) {
+	artifact *meta.Artifact) (*swapi.ExternalArtifactReference, error) {
 	log := ctrl.LoggerFrom(ctx)
 	// Create the ExternalArtifact object.
 	externalArtifact := &sourcev1.ExternalArtifact{
@@ -414,29 +414,32 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	log.Info(fmt.Sprintf("ExternalArtifact/%s/%s reconciled with revision %s",
 		externalArtifact.Namespace, externalArtifact.Name, artifact.Revision))
 
-	return &meta.NamespacedObjectKindReference{
-		APIVersion: sourcev1.GroupVersion.String(),
-		Kind:       sourcev1.ExternalArtifactKind,
-		Name:       externalArtifact.Name,
-		Namespace:  externalArtifact.Namespace,
+	return &swapi.ExternalArtifactReference{
+		Kind:      sourcev1.ExternalArtifactKind,
+		Name:      externalArtifact.Name,
+		Namespace: externalArtifact.Namespace,
+		Digest:    artifact.Digest,
+		Filename:  filepath.Base(artifact.Path),
 	}, nil
 }
 
 // findOrphanedReferences identifies ExternalArtifact references in the inventory
 // that are not present in the current references, indicating they should be garbage collected.
 func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
-	inventory []meta.NamespacedObjectKindReference,
-	currentRefs []meta.NamespacedObjectKindReference) []meta.NamespacedObjectKindReference {
+	inventory []swapi.ExternalArtifactReference,
+	currentRefs []swapi.ExternalArtifactReference) []swapi.ExternalArtifactReference {
 	// Create map of current references for O(1) lookup
-	currentSet := make(map[meta.NamespacedObjectKindReference]struct{})
+	currentSet := make(map[string]struct{})
 	for _, ref := range currentRefs {
-		currentSet[ref] = struct{}{}
+		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
+		currentSet[key] = struct{}{}
 	}
 
 	// Find inventory items not in current set
-	var orphaned []meta.NamespacedObjectKindReference
+	var orphaned []swapi.ExternalArtifactReference
 	for _, ref := range inventory {
-		if _, exists := currentSet[ref]; !exists {
+		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
+		if _, exists := currentSet[key]; !exists {
 			orphaned = append(orphaned, ref)
 		}
 	}

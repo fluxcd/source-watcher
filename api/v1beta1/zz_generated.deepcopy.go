@@ -21,7 +21,6 @@ limitations under the License.
 package v1beta1
 
 import (
-	"github.com/fluxcd/pkg/apis/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -125,7 +124,7 @@ func (in *ArtifactGeneratorStatus) DeepCopyInto(out *ArtifactGeneratorStatus) {
 	}
 	if in.Inventory != nil {
 		in, out := &in.Inventory, &out.Inventory
-		*out = make([]meta.NamespacedObjectKindReference, len(*in))
+		*out = make([]ExternalArtifactReference, len(*in))
 		copy(*out, *in)
 	}
 }

@@ -208,26 +208,30 @@ spec:
                   references.
                 items:
                   description: |-
-                    NamespacedObjectKindReference contains enough information to locate the typed referenced Kubernetes resource object
-                    in any namespace.
+                    ExternalArtifactReference contains the reference to a
+                    generated ExternalArtifact along with its digest.
                   properties:
-                    apiVersion:
-                      description: API version of the referent, if not specified the
-                        Kubernetes preferred version will be used.
+                    digest:
+                      description: Digest of the referent artifact.
+                      type: string
+                    filename:
+                      description: Filename is the name of the artifact file.
                       type: string
                     kind:
-                      description: Kind of the referent.
+                      description: Kind of the referent artifact.
                       type: string
                     name:
-                      description: Name of the referent.
+                      description: Name of the referent artifact.
                       type: string
                     namespace:
-                      description: Namespace of the referent, when not specified it
-                        acts as LocalObjectReference.
+                      description: Namespace of the referent artifact.
                       type: string
                   required:
+                  - digest
+                  - filename
                   - kind
                   - name
+                  - namespace
                   type: object
                 type: array
               lastHandledReconcileAt:
