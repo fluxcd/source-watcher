@@ -277,10 +277,10 @@ the following annotation on the resource:
 ```yaml
 metadata:
   annotations:
-    source.extensions.fluxcd.io/reconcile: "Disable"
+    source.extensions.fluxcd.io/reconcile: "Disabled"
 ```
 
-To resume reconciliation, remove the annotation or set its value to `"Enable"`.
+To resume reconciliation, remove the annotation or set its value to `Enabled`.
 
 ### Trigger Reconciliation
 
@@ -299,7 +299,7 @@ in the `.status.lastHandledReconcileAt` field.
 
 ## ArtifactGenerator Status
 
-The ArtifactGenerator reports the latest synchronized state in the `.status` field.
+The controller reports the latest synchronized state of an ArtifactGenerator in the `.status` field.
 
 ### Conditions
 
@@ -316,8 +316,8 @@ the current state.
 The controller marks an ArtifactGenerator as _reconciling_ when 
 it is actively working to produce artifacts from source changes.
 
-When the ArtifactGenerator is reconciling, the controller sets a Condition
-with the following attributes in the ArtifactGenerator's `.status.conditions`:
+When the ArtifactGenerator is reconciling, the controller sets
+the `Reconciling` Condition with the following attributes:
 
 - `type: Reconciling`
 - `status: "True"`
@@ -327,19 +327,19 @@ In addition, the controller sets the `Ready` Condition to `Unknown`.
 
 #### Ready ArtifactGenerator
 
-The controller marks an OCIRepository as _ready_ when it has successfully
+The controller marks an ArtifactGenerator as _ready_ when it has successfully
 produced and stored artifacts in the controller's storage.
 
-When the ArtifactGenerator is "ready", the controller sets a Condition with the
-following attributes in the OCIRepository's `.status.conditions`:
+When the ArtifactGenerator is "ready", the controller sets
+the `Ready` Condition with the following attributes:
 
 - `type: Ready`
 - `status: "True"`
 - `reason: Succeeded`
 
 This `Ready` Condition will retain a status value of `"True"` until the
-ArtifactGenerator is marked as [reconciling](#reconciling-artifactgenerator), or e.g. a
-[transient error](#failed-artifactgenerator) occurs.
+ArtifactGenerator is marked as [reconciling](#reconciling-artifactgenerator), or an
+[error](#failed-artifactgenerator) occurs.
 
 #### Failed ArtifactGenerator
 
@@ -349,7 +349,7 @@ artifacts. These errors can be transient or terminal, such as:
 - The Flux source-controller is unreachable (e.g. network issues).
 - One of the referenced sources is not found or access is denied.
 - The copy operation fails due to duplicate aliases, invalid glob patterns or missing files.
-- A storage related failure when storing the artifacts.
+- Encounters a storage related failure when storing the artifacts.
 
 When an error occurs, the controller sets the `Ready` Condition status to `False`,
 with one of the following reasons:
@@ -376,10 +376,27 @@ When the ArtifactGenerator is stalled, the controller sets the following conditi
 
 ### Inventory
 
-The ArtifactGenerator reports the list of generated ExternalArtifacts in the
-`.status.inventory` field. The inventory is used by the controller to
-keep track of the artifacts in storage and to perform garbage collection
-of orphaned artifacts.
+The controller reports the list of generated ExternalArtifacts in the`.status.inventory`
+field of the ArtifactGenerator. The inventory is used by the controller to keep track
+of the artifacts in storage and to perform garbage collection of orphaned artifacts.
+
+## ArtifactGenerator Events
+
+The controller emits Kubernetes events to provide insights into the lifecycle
+of an ArtifactGenerator. These events can be viewed using `kubectl describe`
+or with `kubectl events`.
+
+Events are emitted for the following scenarios:
+
+- ArtifactGenerator reconciliation completion (success or failure).
+- ExternalArtifacts creation, update, or deletion.
+- Source fetch failures or access issues.
+- Build failures (e.g. invalid glob patterns, missing files).
+- Storage operations (e.g. garbage collection, integrity validation failures).
+- Drift detection (e.g. manual changes to generated ExternalArtifacts).
+
+All events are also logged to the controller's standard output and contain 
+the ArtifactGenerator name and namespace.
 
 [externalartifact]: https://github.com/fluxcd/source-controller/blob/main/docs/spec/v1/externalartifacts.md
 [gitrepository]: https://github.com/fluxcd/source-controller/blob/main/docs/spec/v1/gitrepositories.md
