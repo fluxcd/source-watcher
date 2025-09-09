@@ -104,8 +104,8 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 
 	// Verify inventory contains both output artifacts
 	g.Expect(obj.Status.Inventory).To(HaveLen(2))
-	g.Expect(obj.Status.Inventory[0].Kind).To(Equal(sourcev1.ExternalArtifactKind))
-	g.Expect(obj.Status.Inventory[1].Kind).To(Equal(sourcev1.ExternalArtifactKind))
+	g.Expect(obj.Status.Inventory[0].Name).To(Equal(fmt.Sprintf("%s-git", obj.Name)))
+	g.Expect(obj.Status.Inventory[1].Name).To(Equal(fmt.Sprintf("%s-oci", obj.Name)))
 
 	t.Log(objToYaml(obj))
 

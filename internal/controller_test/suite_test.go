@@ -88,7 +88,7 @@ func TestMain(m *testing.M) {
 	}
 
 	if err = registerController(); err != nil {
-		panic(fmt.Sprintf("Failed to registey controller: %v", err))
+		panic(fmt.Sprintf("Failed to register controller: %v", err))
 	}
 
 	go func() {
@@ -104,6 +104,10 @@ func TestMain(m *testing.M) {
 	fmt.Println("Stopping the test environment")
 	if err := testEnv.Stop(); err != nil {
 		panic(fmt.Sprintf("Failed to stop the test environment: %v", err))
+	}
+	testServer.Stop()
+	if err := os.RemoveAll(testServer.Root()); err != nil {
+		panic(fmt.Sprintf("Failed to remove storage server dir: %v", err))
 	}
 
 	os.Exit(code)

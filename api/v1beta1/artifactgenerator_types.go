@@ -147,10 +147,6 @@ type ArtifactGeneratorStatus struct {
 // ExternalArtifactReference contains the reference to a
 // generated ExternalArtifact along with its digest.
 type ExternalArtifactReference struct {
-	// Kind of the referent artifact.
-	// +required
-	Kind string `json:"kind"`
-
 	// Name of the referent artifact.
 	// +required
 	Name string `json:"name"`
@@ -166,18 +162,6 @@ type ExternalArtifactReference struct {
 	// Filename is the name of the artifact file.
 	// +required
 	Filename string `json:"filename"`
-}
-
-// ObservedSource contains the observed state of an upstream source.
-type ObservedSource struct {
-	// Digest is the artifact digest of the upstream source.
-	Digest string `json:"digest"`
-
-	// Revision is the artifact revision of the upstream source.
-	Revision string `json:"revision"`
-
-	// URL is the artifact URL of the upstream source.
-	URL string `json:"url"`
 }
 
 // GetConditions returns the status conditions of the object.
@@ -209,10 +193,9 @@ func (in *ArtifactGenerator) IsDisabled() bool {
 
 // HasArtifactInInventory returns true if the artifact with the given
 // kind, name, namespace, and digest exists in the inventory.
-func (in *ArtifactGenerator) HasArtifactInInventory(kind, name, namespace, digest string) bool {
+func (in *ArtifactGenerator) HasArtifactInInventory(name, namespace, digest string) bool {
 	for _, ref := range in.Status.Inventory {
-		if ref.Kind == kind && ref.Name == name &&
-			ref.Namespace == namespace && ref.Digest == digest {
+		if ref.Name == name && ref.Namespace == namespace && ref.Digest == digest {
 			return true
 		}
 	}

@@ -22,11 +22,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -147,7 +145,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	}
 
 	// Calculate the hash of the observed sources.
-	observedSourcesDigest := r.hashObservedSources(remoteSources)
+	observedSourcesDigest := swapi.HashObservedSources(remoteSources)
 
 	// Detect drift between the actual state and the desired state.
 	// If no drift is detected in sources and the stored artifacts pass the
@@ -238,7 +236,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 
 	// Garbage collect old artifacts in storage according to the retention policy.
 	for _, eaRef := range eaRefs {
-		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "*")
+		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
 		delFiles, err := r.Storage.GarbageCollect(ctx, meta.Artifact{Path: storagePath}, 5*time.Minute)
 		if err != nil {
 			log.Error(err, "failed to garbage collect artifacts", "path", storagePath)
@@ -330,17 +328,6 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 	return observedSources, nil
 }
 
-// hashObservedSources computes a hash of the observed sources map.
-// It sorts the formatted source strings to ensure consistent hashing.
-func (r *ArtifactGeneratorReconciler) hashObservedSources(sources map[string]swapi.ObservedSource) string {
-	parts := make([]string, 0, len(sources))
-	for alias, src := range sources {
-		parts = append(parts, fmt.Sprintf("%s=%s&%s", alias, src.Digest, src.Revision))
-	}
-	sort.Strings(parts)
-	return digest.FromString(strings.Join(parts, "|")).String()
-}
-
 // fetchSources fetches the sources defined in the ArtifactGenerator spec
 // into the provided tmpDir under a subdirectory named after the source alias.
 // It returns a map of source alias to the absolute path where the source was fetched.
@@ -365,7 +352,7 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 			fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
 			fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
 		)
-		if err := fetcher.Fetch(src.URL, src.Digest, srcDir); err != nil {
+		if err := fetcher.FetchWithContext(ctx, src.URL, src.Digest, srcDir); err != nil {
 			return nil, err
 		}
 		dirs[alias] = srcDir
@@ -435,7 +422,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		return nil, fmt.Errorf("failed to patch ExternalArtifact status: %w", err)
 	}
 
-	if obj.HasArtifactInInventory(ea.Kind, ea.Name, ea.Namespace, artifact.Digest) {
+	if obj.HasArtifactInInventory(ea.Name, ea.Namespace, artifact.Digest) {
 		log.Info(fmt.Sprintf("%s/%s/%s is up to date",
 			ea.Kind, ea.Namespace, ea.Name))
 	} else {
@@ -444,7 +431,6 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	}
 
 	return &swapi.ExternalArtifactReference{
-		Kind:      sourcev1.ExternalArtifactKind,
 		Name:      ea.Name,
 		Namespace: ea.Namespace,
 		Digest:    artifact.Digest,
@@ -460,14 +446,14 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	// Create map of current references for O(1) lookup
 	currentSet := make(map[string]struct{})
 	for _, ref := range currentRefs {
-		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
+		key := fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name)
 		currentSet[key] = struct{}{}
 	}
 
 	// Find inventory items not in current set
 	var orphaned []swapi.ExternalArtifactReference
 	for _, ref := range inventory {
-		key := fmt.Sprintf("%s/%s/%s", ref.Kind, ref.Namespace, ref.Name)
+		key := fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name)
 		if _, exists := currentSet[key]; !exists {
 			orphaned = append(orphaned, ref)
 		}
@@ -564,23 +550,23 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	}
 
 	for _, eaRef := range obj.Status.Inventory {
-		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
+		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
 		artifact := meta.Artifact{
 			Digest: eaRef.Digest,
 			Path:   storagePath,
 		}
 		if !r.Storage.ArtifactExist(artifact) {
 			log.Info("Drift detected, artifact missing from storage",
-				"artifact", fmt.Sprintf("%s/%s/%s", eaRef.Kind, eaRef.Namespace, eaRef.Name),
+				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name),
 				"path", storagePath)
 			return true, "ArtifactMissing"
 		}
 		if err := r.Storage.VerifyArtifact(artifact); err != nil {
 			log.Error(err, "Artifact integrity verification failed, deleting corrupted artifact",
-				"artifact", fmt.Sprintf("%s/%s/%s", eaRef.Kind, eaRef.Namespace, eaRef.Name))
+				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name))
 			if err := r.Storage.Remove(artifact); err != nil {
 				log.Error(err, "Failed to remove corrupted artifact from storage",
-					"artifact", fmt.Sprintf("%s/%s/%s", eaRef.Kind, eaRef.Namespace, eaRef.Name))
+					"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name))
 			}
 			return true, "ArtifactCorrupted"
 		}

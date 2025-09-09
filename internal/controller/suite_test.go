@@ -104,6 +104,10 @@ func TestMain(m *testing.M) {
 	if err := testEnv.Stop(); err != nil {
 		panic(fmt.Sprintf("Failed to stop the test environment: %v", err))
 	}
+	testServer.Stop()
+	if err := os.RemoveAll(testServer.Root()); err != nil {
+		panic(fmt.Sprintf("Failed to remove storage server dir: %v", err))
+	}
 
 	os.Exit(code)
 }

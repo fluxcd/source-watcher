@@ -40,7 +40,10 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("failed to create test server: %v", err)
 	}
 	testServer.Start()
-	defer testServer.Stop()
+	defer func() {
+		testServer.Stop()
+		os.RemoveAll(testServer.Root())
+	}()
 
 	testStorage, err := storage.New(&config.Options{
 		StoragePath:              testServer.Root(),
@@ -130,7 +133,7 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
+				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -207,7 +210,7 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
+				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -276,7 +279,7 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
+				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -405,7 +408,7 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Verify tar.gz archive contents
-				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
+				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
@@ -573,7 +576,7 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Verify tar.gz archive contents
-				verifyTarGzContents(t, testStorage, artifact, stagingDir, expectedFiles)
+				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 	}
@@ -600,9 +603,9 @@ func TestBuild(t *testing.T) {
 	}
 }
 
-// verifyTarGzContents extracts and verifies the contents of a tar.gz artifact
+// verifyContents extracts and verifies the contents of a tar.gz artifact
 // It takes the expected files from the staging directory and verifies they exist in the tar.gz
-func verifyTarGzContents(t *testing.T, testStorage *storage.Storage, artifact *meta.Artifact, stagingDir string, expectedFiles map[string]string) {
+func verifyContents(t *testing.T, testStorage *storage.Storage, artifact *meta.Artifact, stagingDir string, expectedFiles map[string]string) {
 	t.Helper()
 
 	// Create a temporary directory for extraction

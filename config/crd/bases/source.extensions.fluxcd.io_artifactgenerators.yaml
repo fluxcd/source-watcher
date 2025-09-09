@@ -217,9 +217,6 @@ spec:
                     filename:
                       description: Filename is the name of the artifact file.
                       type: string
-                    kind:
-                      description: Kind of the referent artifact.
-                      type: string
                     name:
                       description: Name of the referent artifact.
                       type: string
@@ -229,7 +226,6 @@ spec:
                   required:
                   - digest
                   - filename
-                  - kind
                   - name
                   - namespace
                   type: object

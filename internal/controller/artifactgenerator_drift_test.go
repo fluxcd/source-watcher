@@ -105,7 +105,6 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 					ObservedSourcesDigest: "test123",
 					Inventory: []swapi.ExternalArtifactReference{
 						{
-							Kind:      sourcev1.ExternalArtifactKind,
 							Namespace: ns.Name,
 							Name:      "test-artifact",
 							Digest:    artifact.Digest,
@@ -216,7 +215,6 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 					ObservedSourcesDigest: "test123",
 					Inventory: []swapi.ExternalArtifactReference{
 						{
-							Kind:      sourcev1.ExternalArtifactKind,
 							Namespace: ns.Name,
 							Name:      "artifact-1",
 							Digest:    "sha256:test",
@@ -253,7 +251,6 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 					ObservedSourcesDigest: "test123",
 					Inventory: []swapi.ExternalArtifactReference{
 						{
-							Kind:      sourcev1.ExternalArtifactKind,
 							Namespace: ns.Name,
 							Name:      "missing-artifact",
 							Digest:    "sha256:missing",

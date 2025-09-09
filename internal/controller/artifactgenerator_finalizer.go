@@ -68,12 +68,12 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Cont
 
 	for _, eaRef := range refs {
 		// Delete from storage.
-		storagePath := storage.ArtifactPath(eaRef.Kind, eaRef.Namespace, eaRef.Name, "*")
+		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
 		rmDir, err := r.Storage.RemoveAll(meta.Artifact{Path: storagePath})
 		if err != nil {
 			log.Error(err, "Failed to delete artifact from storage", "path", storagePath)
 		} else if rmDir != "" {
-			log.Info(fmt.Sprintf("%s/%s/%s deleted from storage", eaRef.Kind, eaRef.Namespace, eaRef.Name), "path", rmDir)
+			log.Info(fmt.Sprintf("%s/%s/%s deleted from storage", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name), "path", rmDir)
 		}
 
 		// Delete from cluster.
@@ -87,7 +87,7 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Cont
 		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to delete ExternalArtifact")
 		} else {
-			log.Info(fmt.Sprintf("%s/%s/%s deleted from cluster", eaRef.Kind, eaRef.Namespace, eaRef.Name))
+			log.Info(fmt.Sprintf("%s/%s/%s deleted from cluster", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name))
 		}
 	}
 }
