@@ -8,9 +8,9 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 
 require (
 	github.com/fluxcd/pkg/apis/meta v1.21.0
-	github.com/fluxcd/pkg/artifact v0.2.0
+	github.com/fluxcd/pkg/artifact v0.3.0
 	github.com/fluxcd/pkg/http/fetch v0.19.0
-	github.com/fluxcd/pkg/runtime v0.83.0
+	github.com/fluxcd/pkg/runtime v0.84.0
 	github.com/fluxcd/pkg/tar v0.14.0
 	github.com/fluxcd/pkg/testserver v0.13.0
 	github.com/fluxcd/source-controller/api v1.7.0-rc.3
@@ -22,7 +22,7 @@ require (
 	k8s.io/apimachinery v0.34.0
 	k8s.io/client-go v0.34.0
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
-	sigs.k8s.io/controller-runtime v0.22.0
+	sigs.k8s.io/controller-runtime v0.22.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -37,7 +37,7 @@ require (
 	github.com/containerd/stargz-snapshotter/estargz v0.16.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/docker/cli v28.2.2+incompatible // indirect
+	github.com/docker/cli v28.4.0+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
@@ -46,7 +46,7 @@ require (
 	github.com/fluxcd/cli-utils v0.36.0-flux.15 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.7.0 // indirect
-	github.com/fluxcd/pkg/oci v0.55.0 // indirect
+	github.com/fluxcd/pkg/oci v0.56.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.14.0 // indirect
 	github.com/fluxcd/pkg/version v0.10.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
