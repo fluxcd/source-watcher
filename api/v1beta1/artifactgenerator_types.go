@@ -28,6 +28,7 @@ import (
 const (
 	ArtifactGeneratorKind        = "ArtifactGenerator"
 	Finalizer                    = "source.extensions.fluxcd.io/finalizer"
+	ArtifactGeneratorLabel       = "source.extensions.fluxcd.io/generator"
 	ReconcileAnnotation          = "source.extensions.fluxcd.io/reconcile"
 	ReconciliationDisabledReason = "ReconciliationDisabled"
 	AccessDeniedReason           = "AccessDenied"

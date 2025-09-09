@@ -121,9 +121,16 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 
 		t.Log(objToYaml(externalArtifact))
 
+		// Verify labels
+		g.Expect(externalArtifact.Labels).ToNot(BeNil())
+		g.Expect(externalArtifact.Labels["app.kubernetes.io/managed-by"]).To(Equal(controllerName))
+		g.Expect(externalArtifact.Labels[swapi.ArtifactGeneratorLabel]).To(BeEquivalentTo(obj.GetUID()))
+
 		// Verify source reference
+		g.Expect(externalArtifact.Spec.SourceRef.APIVersion).To(Equal(swapi.GroupVersion.String()))
 		g.Expect(externalArtifact.Spec.SourceRef.Kind).To(Equal(swapi.ArtifactGeneratorKind))
 		g.Expect(externalArtifact.Spec.SourceRef.Name).To(Equal(obj.Name))
+		g.Expect(externalArtifact.Spec.SourceRef.Namespace).To(Equal(obj.Namespace))
 
 		// Verify the status
 		g.Expect(externalArtifact.Status.Artifact).ToNot(BeNil())
@@ -272,124 +279,6 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	a, err := findArtifactsInStorage(obj.Namespace)
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(a).To(HaveLen(0))
-}
-
-func TestResourceSetReconciler_Finalize(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := getArtifactGeneratorReconciler()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// Create a namespace
-	ns, err := testEnv.CreateNamespace(ctx, "test")
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Create the ArtifactGenerator object
-	objKey := client.ObjectKey{
-		Name:      "test",
-		Namespace: ns.Name,
-	}
-	obj := getArtifactGenerator(objKey)
-	err = testClient.Create(ctx, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Initialize the object with the finalizer
-	r, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: objKey,
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
-
-	// Verify the finalizer was added
-	err = testClient.Get(ctx, objKey, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(obj.Finalizers).To(ContainElement(swapi.Finalizer))
-
-	// Verify the object is in reconciling state
-	g.Expect(conditions.IsReconciling(obj)).To(BeTrue())
-	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(meta.ProgressingReason))
-
-	// Delete the object to trigger finalization
-	err = testClient.Delete(ctx, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Reconcile to free resources
-	r, err = reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: objKey,
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(r.RequeueAfter).To(BeZero())
-
-	// Verify the object has been deleted
-	resultFinal := &swapi.ArtifactGenerator{}
-	err = testClient.Get(ctx, objKey, resultFinal)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-}
-
-func TestResourceSetReconciler_Finalize_Disabled(t *testing.T) {
-	g := NewWithT(t)
-	reconciler := getArtifactGeneratorReconciler()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// Create a namespace
-	ns, err := testEnv.CreateNamespace(ctx, "test")
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Create the ArtifactGenerator object
-	objKey := client.ObjectKey{
-		Name:      "test",
-		Namespace: ns.Name,
-	}
-	obj := getArtifactGenerator(objKey)
-	obj.SetAnnotations(map[string]string{
-		swapi.ReconcileAnnotation: swapi.DisabledValue,
-	})
-	err = testClient.Create(ctx, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Initialize the object with the finalizer
-	r, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: objKey,
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
-
-	// Verify the finalizer was added
-	err = testClient.Get(ctx, objKey, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(obj.Finalizers).To(ContainElement(swapi.Finalizer))
-
-	// Reconcile disabled object
-	r, err = reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: objKey,
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(r.RequeueAfter).To(BeZero())
-
-	// Verify the object is marked as disabled
-	err = testClient.Get(ctx, objKey, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(conditions.IsTrue(obj, meta.ReadyCondition)).To(BeTrue())
-	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(swapi.ReconciliationDisabledReason))
-
-	// Delete the object to trigger finalization
-	err = testClient.Delete(ctx, obj)
-	g.Expect(err).ToNot(HaveOccurred())
-
-	// Reconcile to free resources
-	r, err = reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: objKey,
-	})
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(r.RequeueAfter).To(BeZero())
-
-	// Verify the object has been deleted
-	resultFinal := &swapi.ArtifactGenerator{}
-	err = testClient.Get(ctx, objKey, resultFinal)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 }
 
 func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {

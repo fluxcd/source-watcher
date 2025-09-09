@@ -368,6 +368,12 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	outputArtifact *swapi.OutputArtifact,
 	artifact *meta.Artifact) (*swapi.ExternalArtifactReference, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Prepare labels for the ExternalArtifact with the managed-by and generator labels.
+	labels := make(map[string]string)
+	labels["app.kubernetes.io/managed-by"] = r.ControllerName
+	labels[swapi.ArtifactGeneratorLabel] = string(obj.GetUID())
+
 	// Create the ExternalArtifact object.
 	ea := &sourcev1.ExternalArtifact{
 		TypeMeta: metav1.TypeMeta{
@@ -377,7 +383,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      outputArtifact.Name,
 			Namespace: obj.Namespace,
-			Labels:    obj.GetLabels(),
+			Labels:    labels,
 		},
 		Spec: sourcev1.ExternalArtifactSpec{
 			SourceRef: &meta.NamespacedObjectKindReference{
@@ -460,117 +466,4 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	}
 
 	return orphaned
-}
-
-// validateSpec validates the ArtifactGenerator spec for uniqueness and multi-tenancy constraints.
-func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator) error {
-	// Validate source aliases.
-	aliasMap := make(map[string]bool)
-	for _, src := range obj.Spec.Sources {
-		// Check for duplicate aliases
-		if aliasMap[src.Alias] {
-			return r.newTerminalErrorFor(obj,
-				swapi.ValidationFailedReason,
-				"duplicate source alias '%s' found", src.Alias)
-		}
-		aliasMap[src.Alias] = true
-
-		// Enforce multi-tenancy lockdown if configured.
-		if r.NoCrossNamespaceRefs && src.Namespace != "" && src.Namespace != obj.Namespace {
-			return r.newTerminalErrorFor(obj,
-				swapi.AccessDeniedReason,
-				"cross-namespace reference to source %s/%s/%s is not allowed",
-				src.Kind, src.Namespace, src.Name)
-		}
-	}
-
-	// Validate output artifact.
-	nameMap := make(map[string]bool)
-	for _, artifact := range obj.Spec.OutputArtifacts {
-		// Check for duplicate artifact names.
-		if nameMap[artifact.Name] {
-			return r.newTerminalErrorFor(obj,
-				swapi.ValidationFailedReason,
-				"duplicate artifact name '%s' found", artifact.Name)
-		}
-
-		// Check that the revision source alias exists.
-		if artifact.Revision != "" && !aliasMap[strings.TrimPrefix(artifact.Revision, "@")] {
-			return r.newTerminalErrorFor(obj,
-				swapi.ValidationFailedReason,
-				"artifact %s revision source alias '%s' not found",
-				artifact.Name, strings.TrimPrefix(artifact.Revision, "@"))
-		}
-		nameMap[artifact.Name] = true
-	}
-
-	return nil
-}
-
-// detectDrift checks if the actual state matches the desired and last reconciled state.
-//
-// Returns (hasDrift, reason) where reason can be one of:
-//   - "NotReady" - object is not in Ready condition
-//   - "GenerationChanged" - object generation differs from observed generation
-//   - "SourcesChanged" - sources digest has changed
-//   - "ArtifactsChanged" - number of artifacts in spec differs from inventory
-//   - "ArtifactMissing" - artifact is missing from storage
-//   - "ArtifactCorrupted" - artifact exists but fails integrity verification
-//   - "NoDriftDetected" - no drift detected and the storage is up to date
-func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
-	obj *swapi.ArtifactGenerator,
-	currentSourcesDigest string) (bool, string) {
-	// Setup logger on debug level.
-	log := ctrl.LoggerFrom(ctx).V(1)
-
-	if conditions.IsFalse(obj, meta.ReadyCondition) {
-		log.Info("Drift detected, previous reconciliation failed")
-		return true, "NotReady"
-	}
-
-	if obj.GetGeneration() != conditions.GetObservedGeneration(obj, meta.ReadyCondition) {
-		log.Info("Drift detected, generation has changed",
-			"old", conditions.GetObservedGeneration(obj, meta.ReadyCondition),
-			"new", obj.GetGeneration())
-		return true, "GenerationChanged"
-	}
-
-	if obj.Status.ObservedSourcesDigest != currentSourcesDigest {
-		log.Info("Drift detected, sources have changed",
-			"old", obj.Status.ObservedSourcesDigest,
-			"new", currentSourcesDigest)
-		return true, "SourcesChanged"
-	}
-
-	if len(obj.Status.Inventory) != len(obj.Spec.OutputArtifacts) {
-		log.Info("Drift detected, number of output artifacts has changed",
-			"old", len(obj.Status.Inventory),
-			"new", len(obj.Spec.OutputArtifacts))
-		return true, "ArtifactsChanged"
-	}
-
-	for _, eaRef := range obj.Status.Inventory {
-		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
-		artifact := meta.Artifact{
-			Digest: eaRef.Digest,
-			Path:   storagePath,
-		}
-		if !r.Storage.ArtifactExist(artifact) {
-			log.Info("Drift detected, artifact missing from storage",
-				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name),
-				"path", storagePath)
-			return true, "ArtifactMissing"
-		}
-		if err := r.Storage.VerifyArtifact(artifact); err != nil {
-			log.Error(err, "Artifact integrity verification failed, deleting corrupted artifact",
-				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name))
-			if err := r.Storage.Remove(artifact); err != nil {
-				log.Error(err, "Failed to remove corrupted artifact from storage",
-					"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name))
-			}
-			return true, "ArtifactCorrupted"
-		}
-	}
-
-	return false, "NoDriftDetected"
 }
