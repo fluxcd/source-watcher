@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package builder
+package builder_test
 
 import (
 	"context"
@@ -22,41 +22,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/config"
-	"github.com/fluxcd/pkg/artifact/digest"
 	"github.com/fluxcd/pkg/artifact/storage"
 	"github.com/fluxcd/pkg/tar"
-	"github.com/fluxcd/pkg/testserver"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
 
 func TestBuild(t *testing.T) {
-	testServer, err := testserver.NewTempArtifactServer()
-	if err != nil {
-		t.Fatalf("failed to create test server: %v", err)
-	}
-	testServer.Start()
-	defer func() {
-		testServer.Stop()
-		os.RemoveAll(testServer.Root())
-	}()
-
-	testStorage, err := storage.New(&config.Options{
-		StoragePath:              testServer.Root(),
-		StorageAddress:           testServer.URL(),
-		StorageAdvAddress:        testServer.URL(),
-		ArtifactRetentionTTL:     time.Minute,
-		ArtifactRetentionRecords: 2,
-		ArtifactDigestAlgo:       digest.Canonical.String(),
-	})
-	if err != nil {
-		t.Fatalf("failed to create test storage: %v", err)
-	}
-
 	tests := []struct {
 		name         string
 		setupFunc    func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
@@ -583,7 +557,6 @@ func TestBuild(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testBuilder := New(testStorage)
 			spec, sources, workspace := tt.setupFunc(t)
 
 			artifact, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)

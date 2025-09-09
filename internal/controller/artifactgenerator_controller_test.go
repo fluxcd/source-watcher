@@ -168,7 +168,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	// Verify garbage collection keeps 2 versions per artifact
 	archives, err := findArtifactsInStorage(obj.Namespace)
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(archives).To(HaveLen(4))
+	g.Expect(archives).To(HaveLen(3)) // 2 for OCI, 1 for Git
 
 	// Verify that only the OCI ExternalArtifact was updated
 	for _, inv := range inventory {

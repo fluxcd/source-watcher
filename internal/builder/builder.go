@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	"github.com/google/uuid"
+	"golang.org/x/mod/sumdb/dirhash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/fluxcd/pkg/apis/meta"
@@ -52,23 +52,12 @@ func New(storage *storage.Storage) *ArtifactBuilder {
 // applies the copy operations, and then archives the staged files into the
 // artifact storage. The resulting artifact metadata is returned.
 // The artifact archive is stored under the following path:
-// <storage-root>/<kind>/<namespace>/<name>/<artifact-uuid>.tar.gz
+// <storage-root>/<kind>/<namespace>/<name>/<contents-hash>.tar.gz
 func (r *ArtifactBuilder) Build(ctx context.Context,
 	spec *swapi.OutputArtifact,
 	sources map[string]string,
 	namespace string,
 	workspace string) (*meta.Artifact, error) {
-	// Initialize the Artifact object in the storage backend.
-	artifact := r.Storage.NewArtifactFor(
-		sourcev1.ExternalArtifactKind,
-		&metav1.ObjectMeta{
-			Name:      spec.Name,
-			Namespace: namespace,
-		},
-		spec.Revision,
-		fmt.Sprintf("%s.tar.gz", uuid.NewString()),
-	)
-
 	// Create a dir to stage the artifact files.
 	stagingDir := filepath.Join(workspace, spec.Name)
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
@@ -79,6 +68,23 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 	if err := applyCopyOperations(ctx, spec.Copy, sources, stagingDir); err != nil {
 		return nil, fmt.Errorf("failed to apply copy operations: %w", err)
 	}
+
+	// Compute the hash of the staging dir contents.
+	contentsHash, err := dirhash.HashDir(stagingDir, spec.Name, builderHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash staging dir: %w", err)
+	}
+
+	// Initialize the Artifact object in the storage backend.
+	artifact := r.Storage.NewArtifactFor(
+		sourcev1.ExternalArtifactKind,
+		&metav1.ObjectMeta{
+			Name:      spec.Name,
+			Namespace: namespace,
+		},
+		spec.Revision,
+		fmt.Sprintf("%s.tar.gz", contentsHash),
+	)
 
 	// Create the artifact directory in storage.
 	if err := r.Storage.MkdirAll(artifact); err != nil {

@@ -191,7 +191,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 
 	// Build the artifacts and reconcile the ExternalArtifact objects.
 	// The artifacts will be stored in the storage under the following path:
-	// <storage-root>/<kind>/<namespace>/<name>/<artifact-uuid>.tar.gz
+	// <storage-root>/<kind>/<namespace>/<name>/<contents-hash>.tar.gz
 	artifactBuilder := builder.New(r.Storage)
 	for _, oa := range obj.Spec.OutputArtifacts {
 		// Build the artifact using the local sources.
