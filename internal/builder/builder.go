@@ -111,7 +111,10 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 
 // applyCopyOperations applies a list of copy operations from the sources to the staging directory.
 // The operations are applied in the order of the ops array, and any error will stop the process.
-func applyCopyOperations(ctx context.Context, operations []swapi.CopyOperation, sources map[string]string, stagingDir string) error {
+func applyCopyOperations(ctx context.Context,
+	operations []swapi.CopyOperation,
+	sources map[string]string,
+	stagingDir string) error {
 	for _, op := range operations {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -124,7 +127,13 @@ func applyCopyOperations(ctx context.Context, operations []swapi.CopyOperation, 
 }
 
 // applyCopyOperation applies a single copy operation from the sources to the staging directory.
-func applyCopyOperation(ctx context.Context, op swapi.CopyOperation, sources map[string]string, stagingDir string) error {
+// This function implements cp-like semantics by first analyzing the source pattern to determine
+// if it's a glob, direct file/directory reference, or wildcard pattern, then making copy decisions
+// based on the actual source types found.
+func applyCopyOperation(ctx context.Context,
+	op swapi.CopyOperation,
+	sources map[string]string,
+	stagingDir string) error {
 	srcAlias, srcPattern, err := parseCopySource(op.From)
 	if err != nil {
 		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
@@ -153,7 +162,16 @@ func applyCopyOperation(ctx context.Context, op swapi.CopyOperation, sources map
 	}
 	defer stagingRoot.Close()
 
-	// Use the source root filesystem to safely glob for files
+	// First, analyze the source pattern to understand the copy intent
+	isGlobPattern := containsGlobChars(srcPattern)
+	destEndsWithSlash := strings.HasSuffix(op.To, "/")
+
+	if !isGlobPattern {
+		// Direct path reference - check what it actually is first (cp-like behavior)
+		return applySingleSourceCopy(ctx, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash)
+	}
+
+	// Glob pattern - find all matches and copy each
 	matches, err := fs.Glob(srcRoot.FS(), srcPattern)
 	if err != nil {
 		return fmt.Errorf("invalid glob pattern '%s': %w", srcPattern, err)
@@ -163,17 +181,111 @@ func applyCopyOperation(ctx context.Context, op swapi.CopyOperation, sources map
 		return fmt.Errorf("no files match pattern '%s' in source '%s'", srcPattern, srcAlias)
 	}
 
+	// For glob patterns, destination should be a directory (like cp *.txt dest/)
 	for _, match := range matches {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		destFile := filepath.Join(destRelPath, match)
+
+		// Calculate destination path based on glob pattern type
+		destFile := calculateGlobDestination(srcPattern, match, destRelPath)
 		if err := copyFileWithRoots(ctx, srcRoot, match, stagingRoot, destFile); err != nil {
 			return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
 		}
 	}
 
 	return nil
+}
+
+// applySingleSourceCopy handles copying a single, non-glob source (file or directory)
+// using cp-like semantics based on the source type and destination format.
+func applySingleSourceCopy(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string,
+	destEndsWithSlash bool) error {
+	// Clean the source path to handle trailing slashes
+	srcPath = filepath.Clean(srcPath)
+
+	// Stat the source to determine if it's a file or directory
+	srcInfo, err := srcRoot.Stat(srcPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("source '%s' does not exist", srcPath)
+		}
+		return fmt.Errorf("failed to stat source '%s': %w", srcPath, err)
+	}
+
+	if srcInfo.IsDir() {
+		return applySingleDirectoryCopy(ctx, srcRoot, srcPath, stagingRoot, destPath)
+	} else {
+		return applySingleFileCopy(ctx, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash)
+	}
+}
+
+// applySingleFileCopy handles copying a single file using cp-like semantics:
+// - file -> dest (no slash) = copy to dest as filename
+// - file -> dest/ (with slash) = copy to dest/filename
+func applySingleFileCopy(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string,
+	destEndsWithSlash bool) error {
+	var finalDestPath string
+
+	if destEndsWithSlash {
+		// Destination is explicitly a directory - use source filename
+		srcFileName := filepath.Base(srcPath)
+		finalDestPath = filepath.Join(destPath, srcFileName)
+	} else {
+		// Destination is the target filename
+		finalDestPath = destPath
+	}
+
+	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath)
+}
+
+// applySingleDirectoryCopy handles copying a single directory using cp-like semantics.
+// Copies the source directory as a subdirectory within the destination path.
+// Example: cp -r configs dest -> creates dest/configs/
+func applySingleDirectoryCopy(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string) error {
+	srcDirName := filepath.Base(srcPath)
+	finalDestPath := filepath.Join(destPath, srcDirName)
+
+	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath)
+}
+
+// containsGlobChars returns true if the path contains glob metacharacters
+func containsGlobChars(path string) bool {
+	return strings.ContainsAny(path, "*?[]")
+}
+
+// calculateGlobDestination determines the correct destination path for a glob match
+// to match cp-like behavior for different glob patterns:
+// - dir/** patterns strip the directory prefix (like cp -r dir/** dest/)
+// - other patterns preserve the full match path
+func calculateGlobDestination(pattern, match, destPath string) string {
+	// Check if pattern ends with /** (recursive contents pattern)
+	if strings.HasSuffix(pattern, "/**") {
+		// Extract the directory prefix from pattern (everything before /**)
+		dirPrefix := strings.TrimSuffix(pattern, "/**")
+
+		// If match starts with this prefix, strip it (cp-like behavior)
+		if strings.HasPrefix(match, dirPrefix+"/") {
+			// Strip the directory prefix but keep the rest of the path
+			relativeMatch := strings.TrimPrefix(match, dirPrefix+"/")
+			return filepath.Join(destPath, relativeMatch)
+		}
+	}
+
+	// For other glob patterns, preserve the full match path
+	return filepath.Join(destPath, match)
 }
 
 // parseCopySource parses the source string and returns the alias and pattern.
@@ -190,8 +302,8 @@ func parseCopySource(from string) (alias, pattern string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// parseCopyDestinationRelative parses the destination path and returns the relative path
-// without joining it to the staging directory (for use with os.Root).
+// parseCopyDestinationRelative parses the destination path
+// and returns the relative path within the artifact.
 func parseCopyDestinationRelative(to string) (string, error) {
 	if !strings.HasPrefix(to, "@artifact/") {
 		return "", fmt.Errorf("destination must start with '@artifact/'")
@@ -201,7 +313,11 @@ func parseCopyDestinationRelative(to string) (string, error) {
 }
 
 // copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root.
-func copyFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+func copyFileWithRoots(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string) error {
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		return err
@@ -215,7 +331,11 @@ func copyFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, st
 }
 
 // copyRegularFileWithRoots copies a regular file using os.Root.
-func copyRegularFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+func copyRegularFileWithRoots(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -258,7 +378,11 @@ func copyRegularFileWithRoots(ctx context.Context, srcRoot *os.Root, srcPath str
 }
 
 // copyDirWithRoots copies a directory recursively using os.Root.
-func copyDirWithRoots(ctx context.Context, srcRoot *os.Root, srcPath string, stagingRoot *os.Root, destPath string) error {
+func copyDirWithRoots(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string) error {
 	return fs.WalkDir(srcRoot.FS(), srcPath, func(path string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
 			return err

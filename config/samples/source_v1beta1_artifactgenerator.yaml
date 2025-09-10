@@ -32,4 +32,4 @@ spec:
         - from: "@chart/**"
           to: "@artifact/"
         - from: "@repo/charts/podinfo/values-prod.yaml"
-          to: "@artifact/values.yaml"
+          to: "@artifact/podinfo/values.yaml"

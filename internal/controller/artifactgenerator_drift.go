@@ -97,7 +97,7 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		}
 	}
 
-	eaDrift, err := r.detectExternalArtifactDrift(ctx, obj)
+	eaDrift, err := r.detectExternalArtifactsDrift(ctx, obj)
 	if err != nil {
 		log.Error(err, "Failed to verify in-cluster external artifacts for drift")
 		return true, "ExternalArtifactsNotFound"
@@ -110,9 +110,9 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	return false, "NoDriftDetected"
 }
 
-// detectExternalArtifactDrift checks if any ExternalArtifact objects
+// detectExternalArtifactsDrift checks if any ExternalArtifact objects
 // managed by the ArtifactGenerator have been modified or deleted.
-func (r *ArtifactGeneratorReconciler) detectExternalArtifactDrift(ctx context.Context,
+func (r *ArtifactGeneratorReconciler) detectExternalArtifactsDrift(ctx context.Context,
 	obj *swapi.ArtifactGenerator) (bool, error) {
 
 	eaList := &sourcev1.ExternalArtifactList{}
@@ -131,6 +131,7 @@ func (r *ArtifactGeneratorReconciler) detectExternalArtifactDrift(ctx context.Co
 	// Check if the ExternalArtifacts in the cluster match the inventory
 	for _, ea := range eaList.Items {
 		if !obj.HasArtifactInInventory(ea.Name, ea.Namespace, ea.Status.Artifact.Digest) {
+			return true, nil
 		}
 	}
 
