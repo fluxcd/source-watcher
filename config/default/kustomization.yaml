@@ -8,3 +8,7 @@ resources:
   - ../manager
   - rbac.yaml
   - namespace.yaml
+images:
+  - name: fluxcd/source-controller
+    newName: ghcr.io/fluxcd/source-controller
+    newTag: v1.7.0-rc.3
