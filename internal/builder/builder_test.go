@@ -21,11 +21,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/tar"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -34,7 +33,7 @@ func TestBuild(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupFunc    func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
-		validateFunc func(t *testing.T, artifact *meta.Artifact, workspace string)
+		validateFunc func(t *testing.T, artifact *meta.Artifact, stagingDir string)
 	}{
 		{
 			name: "build artifact with single file copy",
@@ -55,7 +54,7 @@ func TestBuild(t *testing.T) {
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "test-artifact",
+					Name: "cp-single-file",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@source/config.yaml",
@@ -70,7 +69,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				if artifact == nil {
 					t.Fatal("Expected artifact to be returned")
 				}
@@ -85,7 +84,6 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Verify staging directory files and tar.gz archive contents
-				stagingDir := filepath.Join(workspace, "test-artifact")
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "config.yaml"): "apiVersion: v1\nkind: ConfigMap",
 				}
@@ -106,15 +104,18 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				if err := os.WriteFile(filepath.Join(gitDir, "app.yaml"), []byte("apiVersion: apps/v1"), 0o644); err != nil {
-					t.Fatalf("Failed to create git file: %v", err)
+				files := map[string]string{
+					filepath.Join(gitDir, "app.yaml"):    "apiVersion: apps/v1",
+					filepath.Join(ociDir, "config.json"): `{"version": "1.0"}`,
 				}
-				if err := os.WriteFile(filepath.Join(ociDir, "config.json"), []byte(`{"version": "1.0"}`), 0o644); err != nil {
-					t.Fatalf("Failed to create oci file: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "multi-source-artifact",
+					Name: "cp-multi-source",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@git/app.yaml",
@@ -134,12 +135,11 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedRevision := fmt.Sprintf("latest@%s", artifact.Digest)
 				if artifact.Revision != expectedRevision {
 					t.Errorf("Expected revision '%s', got '%s'", expectedRevision, artifact.Revision)
 				}
-				stagingDir := filepath.Join(workspace, "multi-source-artifact")
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "manifests", "app.yaml"): "apiVersion: apps/v1",
 					filepath.Join(stagingDir, "config", "config.json"): `{"version": "1.0"}`,
@@ -160,15 +160,14 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				yamlFiles := []string{"deployment.yaml", "service.yaml", "configmap.yaml"}
-				for _, file := range yamlFiles {
+				for _, file := range []string{"deployment.yaml", "service.yaml", "configmap.yaml"} {
 					if err := os.WriteFile(filepath.Join(srcDir, file), []byte("apiVersion: v1"), 0o644); err != nil {
 						t.Fatalf("Failed to create file %s: %v", file, err)
 					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name:     "glob-artifact",
+					Name:     "cp-glob-pattern",
 					Revision: "@source",
 					Copy: []swapi.CopyOperation{
 						{
@@ -184,8 +183,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				stagingDir := filepath.Join(workspace, "glob-artifact")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "manifests", "deployment.yaml"): "apiVersion: v1",
 					filepath.Join(stagingDir, "manifests", "service.yaml"):    "apiVersion: v1",
@@ -207,15 +205,18 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				if err := os.WriteFile(filepath.Join(srcDir, "root.yaml"), []byte("root content"), 0o644); err != nil {
-					t.Fatalf("Failed to create root file: %v", err)
+				files := map[string]string{
+					filepath.Join(srcDir, "root.yaml"):             "root: content",
+					filepath.Join(srcDir, "subdir", "nested.yaml"): "nested: content",
 				}
-				if err := os.WriteFile(filepath.Join(srcDir, "subdir", "nested.yaml"), []byte("nested content"), 0o644); err != nil {
-					t.Fatalf("Failed to create nested file: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "root-to-root",
+					Name: "cp-root-to-root",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@source/",
@@ -230,11 +231,10 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				stagingDir := filepath.Join(workspace, "recursive-artifact")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "root.yaml"):             "root content",
-					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested content",
+					filepath.Join(stagingDir, "root.yaml"):             "root: content",
+					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested: content",
 				}
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
@@ -252,15 +252,18 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				if err := os.WriteFile(filepath.Join(srcDir, "root.yaml"), []byte("root content"), 0o644); err != nil {
-					t.Fatalf("Failed to create root file: %v", err)
+				files := map[string]string{
+					filepath.Join(srcDir, "root.yaml"):             "root: content",
+					filepath.Join(srcDir, "subdir", "nested.yaml"): "nested: content",
 				}
-				if err := os.WriteFile(filepath.Join(srcDir, "subdir", "nested.yaml"), []byte("nested content"), 0o644); err != nil {
-					t.Fatalf("Failed to create nested file: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "recursive-artifact",
+					Name: "cp-recursive",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@source/**",
@@ -275,11 +278,10 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				stagingDir := filepath.Join(workspace, "recursive-artifact")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "root.yaml"):             "root content",
-					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested content",
+					filepath.Join(stagingDir, "root.yaml"):             "root: content",
+					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested: content",
 				}
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
@@ -303,24 +305,21 @@ func TestBuild(t *testing.T) {
 					}
 				}
 
-				// Create files in source1/config/
-				if err := os.WriteFile(filepath.Join(src1Dir, "config", "app.yaml"), []byte("source1 app config"), 0o644); err != nil {
-					t.Fatalf("Failed to create source1 config file: %v", err)
+				// Create files in both sources
+				files := map[string]string{
+					filepath.Join(src1Dir, "config", "app.yaml"):      "source1: app",
+					filepath.Join(src1Dir, "config", "database.yaml"): "source1: db",
+					filepath.Join(src2Dir, "config", "app.yaml"):      "source2: app",
+					filepath.Join(src2Dir, "config", "network.yaml"):  "source2: net",
 				}
-				if err := os.WriteFile(filepath.Join(src1Dir, "config", "database.yaml"), []byte("source1 database config"), 0o644); err != nil {
-					t.Fatalf("Failed to create source1 database file: %v", err)
-				}
-
-				// Create different files in source2/config/ (some overlapping, some new)
-				if err := os.WriteFile(filepath.Join(src2Dir, "config", "app.yaml"), []byte("source2 app config - OVERWRITTEN"), 0o644); err != nil {
-					t.Fatalf("Failed to create source2 app file: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(src2Dir, "config", "network.yaml"), []byte("source2 network config - NEW"), 0o644); err != nil {
-					t.Fatalf("Failed to create source2 network file: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "subdir-overwrite-artifact",
+					Name: "cp-subdir-overwrite",
 					Copy: []swapi.CopyOperation{
 						{
 							// Copy entire config directory from source1
@@ -342,22 +341,21 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				stagingDir := filepath.Join(workspace, "subdir-overwrite-artifact")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					// app.yaml should be overwritten by source2
-					filepath.Join(stagingDir, "config", "app.yaml"): "source2 app config - OVERWRITTEN",
+					filepath.Join(stagingDir, "config", "app.yaml"): "source2: app",
 					// database.yaml should remain from source1 (not overwritten since source2 doesn't have it)
-					filepath.Join(stagingDir, "config", "database.yaml"): "source1 database config",
+					filepath.Join(stagingDir, "config", "database.yaml"): "source1: db",
 					// network.yaml should be new from source2
-					filepath.Join(stagingDir, "config", "network.yaml"): "source2 network config - NEW",
+					filepath.Join(stagingDir, "config", "network.yaml"): "source2: net",
 				}
 
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
-			name: "cp-like directory copy without trailing slash creates subdirectory",
+			name: "directory copy without trailing slash creates subdirectory",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
@@ -372,15 +370,18 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Create files in config directory
-				if err := os.WriteFile(filepath.Join(configDir, "app.yaml"), []byte("app config"), 0o644); err != nil {
-					t.Fatalf("Failed to create app.yaml: %v", err)
+				files := map[string]string{
+					filepath.Join(configDir, "app.yaml"): "app: config",
+					filepath.Join(configDir, "db.yaml"):  "db: config",
 				}
-				if err := os.WriteFile(filepath.Join(configDir, "db.yaml"), []byte("db config"), 0o644); err != nil {
-					t.Fatalf("Failed to create db.yaml: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "cp-dir-test",
+					Name: "cp-dir-no-slash",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@source/config",
@@ -395,18 +396,17 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				// Since destination always exists, cp creates config as subdirectory
-				stagingDir := filepath.Join(workspace, "cp-dir-test")
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "dest", "config", "app.yaml"): "app config",
-					filepath.Join(stagingDir, "dest", "config", "db.yaml"):  "db config",
+					filepath.Join(stagingDir, "dest", "config", "app.yaml"): "app: config",
+					filepath.Join(stagingDir, "dest", "config", "db.yaml"):  "db: config",
 				}
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
-			name: "cp-like directory copy with trailing slash creates subdirectory",
+			name: "directory copy with trailing slash creates subdirectory",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
@@ -421,15 +421,18 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Create files in config directory
-				if err := os.WriteFile(filepath.Join(configDir, "app.yaml"), []byte("app config"), 0o644); err != nil {
-					t.Fatalf("Failed to create app.yaml: %v", err)
+				files := map[string]string{
+					filepath.Join(configDir, "app.yaml"): "app: config",
+					filepath.Join(configDir, "db.yaml"):  "db: config",
 				}
-				if err := os.WriteFile(filepath.Join(configDir, "db.yaml"), []byte("db config"), 0o644); err != nil {
-					t.Fatalf("Failed to create db.yaml: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "cp-dir-contents-test",
+					Name: "cp-dir-slash",
 					Copy: []swapi.CopyOperation{
 						{
 							// cp -r config/ dest/ (should create dest/config/)
@@ -445,18 +448,17 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				// Should create dest/config/ with contents
-				stagingDir := filepath.Join(workspace, "cp-dir-contents-test")
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "dest", "config", "app.yaml"): "app config",
-					filepath.Join(stagingDir, "dest", "config", "db.yaml"):  "db config",
+					filepath.Join(stagingDir, "dest", "config", "app.yaml"): "app: config",
+					filepath.Join(stagingDir, "dest", "config", "db.yaml"):  "db: config",
 				}
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
 		{
-			name: "cp-like file copy with trailing slash uses source filename",
+			name: "file copy with trailing slash uses source filename",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
@@ -469,12 +471,12 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Create source file
-				if err := os.WriteFile(filepath.Join(srcDir, "config.yaml"), []byte("config content"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(srcDir, "config.yaml"), []byte("a: test"), 0o644); err != nil {
 					t.Fatalf("Failed to create config.yaml: %v", err)
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "cp-file-to-dir-test",
+					Name: "cp-file-to-dir",
 					Copy: []swapi.CopyOperation{
 						{
 							// cp config.yaml dest/ (should create dest/config.yaml)
@@ -490,11 +492,9 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				// Should create dest/config.yaml
-				stagingDir := filepath.Join(workspace, "cp-file-to-dir-test")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "dest", "config.yaml"): "config content",
+					filepath.Join(stagingDir, "dest", "config.yaml"): "a: test",
 				}
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
@@ -516,15 +516,18 @@ func TestBuild(t *testing.T) {
 				}
 
 				// Create files in config structure
-				if err := os.WriteFile(filepath.Join(configDir, "app.yaml"), []byte("app config"), 0o644); err != nil {
-					t.Fatalf("Failed to create app.yaml: %v", err)
+				files := map[string]string{
+					filepath.Join(configDir, "app.yaml"): "app: config",
+					filepath.Join(subDir, "db.yaml"):     "db: config",
 				}
-				if err := os.WriteFile(filepath.Join(subDir, "db.yaml"), []byte("db config"), 0o644); err != nil {
-					t.Fatalf("Failed to create db.yaml: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "recursive-glob-test",
+					Name: "cp-glob-prefix-strip",
 					Copy: []swapi.CopyOperation{
 						{
 							// Should behave like: cp -r ./config/** ./dest/
@@ -541,11 +544,10 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				stagingDir := filepath.Join(workspace, "recursive-glob-test")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
-					filepath.Join(stagingDir, "dest", "app.yaml"):          "app config",
-					filepath.Join(stagingDir, "dest", "subdir", "db.yaml"): "db config",
+					filepath.Join(stagingDir, "dest", "app.yaml"):          "app: config",
+					filepath.Join(stagingDir, "dest", "subdir", "db.yaml"): "db: config",
 				}
 
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
@@ -568,20 +570,23 @@ func TestBuild(t *testing.T) {
 
 				// Create the source file that should be copied
 				valuesFile := filepath.Join(chartsDir, "values-prod.yaml")
-				if err := os.WriteFile(valuesFile, []byte("env: production\nreplicas: 3"), 0o644); err != nil {
+				if err := os.WriteFile(valuesFile, []byte("env: production"), 0o644); err != nil {
 					t.Fatalf("Failed to create values file: %v", err)
 				}
 
 				// Create chart content
-				if err := os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), []byte("name: podinfo"), 0o644); err != nil {
-					t.Fatalf("Failed to create Chart.yaml: %v", err)
+				files := map[string]string{
+					filepath.Join(chartDir, "Chart.yaml"):  "name: podinfo",
+					filepath.Join(chartDir, "values.yaml"): "name: podinfo",
 				}
-				if err := os.WriteFile(filepath.Join(chartDir, "values.yaml"), []byte("name: podinfo"), 0o644); err != nil {
-					t.Fatalf("Failed to create Chart.yaml: %v", err)
+				for filePath, content := range files {
+					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+						t.Fatalf("Failed to create file %s: %v", filePath, err)
+					}
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name:     "podinfo",
+					Name:     "cp-file-to-file",
 					Revision: "@chart",
 					Copy: []swapi.CopyOperation{
 						{
@@ -602,115 +607,16 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspace string) {
-				stagingDir := filepath.Join(workspace, "podinfo")
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "Chart.yaml"):             "name: podinfo",
-					filepath.Join(stagingDir, "podinfo", "values.yaml"): "env: production\nreplicas: 3",
+					filepath.Join(stagingDir, "podinfo", "values.yaml"): "env: production",
 				}
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			spec, sources, workspace := tt.setupFunc(t)
-
-			artifact, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-			} else {
-				tt.validateFunc(t, artifact, workspace)
-			}
-		})
-	}
-}
-
-// verifyContents extracts and verifies the contents of a tar.gz artifact
-// It takes the expected files from the staging directory and verifies they exist in the tar.gz
-func verifyContents(t *testing.T, testStorage *storage.Storage, artifact *meta.Artifact, stagingDir string, expectedFiles map[string]string) {
-	t.Helper()
-
-	// Create a temporary directory for extraction
-	extractDir := t.TempDir()
-
-	// Get the full path to the artifact
-	artifactPath := filepath.Join(testStorage.BasePath, artifact.Path)
-
-	// Open the tar.gz file
-	file, err := os.Open(artifactPath)
-	if err != nil {
-		t.Fatalf("Failed to open tar.gz %s: %v", artifactPath, err)
-	}
-	defer file.Close()
-
-	// Extract the tar.gz file
-	if err := tar.Untar(file, extractDir, tar.WithMaxUntarSize(-1)); err != nil {
-		t.Fatalf("Failed to extract tar.gz %s: %v", artifactPath, err)
-	}
-
-	// Verify expected files exist with correct content by reading from staging directory
-	for stagingPath, expectedContent := range expectedFiles {
-		// Convert staging path to relative path within the tar
-		relPath, err := filepath.Rel(stagingDir, stagingPath)
-		if err != nil {
-			t.Errorf("Failed to get relative path for %s: %v", stagingPath, err)
-			continue
-		}
-
-		fullPath := filepath.Join(extractDir, relPath)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			t.Errorf("Expected file %s to exist in tar.gz but it doesn't", relPath)
-			continue
-		}
-
-		content, err := os.ReadFile(fullPath)
-		if err != nil {
-			t.Errorf("Failed to read extracted file %s: %v", relPath, err)
-			continue
-		}
-
-		if string(content) != expectedContent {
-			t.Errorf("File %s: expected content '%s', got '%s'", relPath, expectedContent, string(content))
-		}
-	}
-}
-
-func TestBuildErrors(t *testing.T) {
-	tests := []struct {
-		name      string
-		setupFunc func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
-	}{
 		{
-			name: "error when copy operation fails",
-			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
-				tmpDir := t.TempDir()
-				workspaceDir := filepath.Join(tmpDir, "workspace")
-
-				if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
-					t.Fatalf("Failed to create dir %s: %v", workspaceDir, err)
-				}
-
-				spec := &swapi.OutputArtifact{
-					Name: "error-artifact",
-					Copy: []swapi.CopyOperation{
-						{
-							From: "@nonexistent/file.yaml",
-							To:   "@artifact/",
-						},
-					},
-				}
-
-				sources := map[string]string{
-					"source": "/nonexistent/path",
-				}
-
-				return spec, sources, workspaceDir
-			},
-		},
-		{
-			name: "error when destination file is a directory",
+			name: "file copy should detect when destination is a directory",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
@@ -731,7 +637,7 @@ func TestBuildErrors(t *testing.T) {
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "error-is-dir-artifact",
+					Name: "cp-file-to-existing-dir",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@source/subdir/",
@@ -739,7 +645,68 @@ func TestBuildErrors(t *testing.T) {
 						},
 						{
 							From: "@source/file1.txt",
-							To:   "@artifact/subdir", // Error: destination is a directory
+							To:   "@artifact/subdir",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				expectedFiles := map[string]string{
+					filepath.Join(stagingDir, "subdir", "file1.txt"): "content1",
+					filepath.Join(stagingDir, "subdir", "file2.txt"): "content2",
+				}
+				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec, sources, workspace := tt.setupFunc(t)
+
+			artifact, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			} else {
+				stagingDir := filepath.Join(workspace, spec.Name)
+				tt.validateFunc(t, artifact, stagingDir)
+			}
+		})
+	}
+}
+
+func TestBuildErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		expectedError string
+		setupFunc     func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
+	}{
+		{
+			name:          "error when source file does not exist",
+			expectedError: "does not exist",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				for _, dir := range []string{srcDir, workspaceDir} {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatalf("Failed to create dir %s: %v", dir, err)
+					}
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name: "error-source-file",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/test.yaml",
+							To:   "@artifact/",
 						},
 					},
 				}
@@ -752,30 +719,71 @@ func TestBuildErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "error when staging directory creation fails",
+			name:          "error when glob pattern matches no files",
+			expectedError: "no files match pattern",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
-				// Use a non-existent parent directory to cause mkdir failure
-				workspaceDir := "/nonexistent/workspace"
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				for _, dir := range []string{srcDir, workspaceDir} {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatalf("Failed to create dir %s: %v", dir, err)
+					}
+				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "mkdir-error-artifact",
+					Name: "error-glob-match",
 					Copy: []swapi.CopyOperation{
 						{
-							From: "@source/file.yaml",
+							From: "@source/*.yaml",
 							To:   "@artifact/",
 						},
 					},
 				}
 
 				sources := map[string]string{
-					"source": "/tmp",
+					"source": srcDir,
 				}
 
 				return spec, sources, workspaceDir
 			},
 		},
 		{
-			name: "error when source alias not found",
+			name:          "error when invalid glob pattern is used",
+			expectedError: "syntax error in pattern",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				for _, dir := range []string{srcDir, workspaceDir} {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatalf("Failed to create dir %s: %v", dir, err)
+					}
+				}
+
+				spec := &swapi.OutputArtifact{
+					Name: "error-glob-pattern",
+					Copy: []swapi.CopyOperation{
+						{
+							// Invalid glob pattern with unmatched bracket
+							From: "@source/[",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+		},
+		{
+			name:          "error when source alias not found",
+			expectedError: "source alias 'missing' not found",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
 				workspaceDir := filepath.Join(tmpDir, "workspace")
@@ -785,7 +793,7 @@ func TestBuildErrors(t *testing.T) {
 				}
 
 				spec := &swapi.OutputArtifact{
-					Name: "missing-alias-artifact",
+					Name: "error-alias",
 					Copy: []swapi.CopyOperation{
 						{
 							From: "@missing/file.yaml",
@@ -801,6 +809,30 @@ func TestBuildErrors(t *testing.T) {
 				return spec, sources, workspaceDir
 			},
 		},
+		{
+			name:          "error when staging directory creation fails",
+			expectedError: "failed to create staging dir",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				// Use a non-existent parent directory to cause mkdir failure
+				workspaceDir := "/nonexistent/workspace"
+
+				spec := &swapi.OutputArtifact{
+					Name: "error-mkdir",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/file.yaml",
+							To:   "@artifact/",
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": "/tmp",
+				}
+
+				return spec, sources, workspaceDir
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -810,7 +842,7 @@ func TestBuildErrors(t *testing.T) {
 			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
 			if err == nil {
 				t.Logf("Staging directory contents:")
-				err := filepath.Walk(filepath.Join(workspace, spec.Name), func(path string, info os.FileInfo, err error) error {
+				walkErr := filepath.Walk(filepath.Join(workspace, spec.Name), func(path string, info os.FileInfo, err error) error {
 					if err != nil {
 						return err
 					}
@@ -822,11 +854,16 @@ func TestBuildErrors(t *testing.T) {
 					}
 					return nil
 				})
-				if err != nil {
-					t.Logf("Error walking staging directory: %v", err)
+				if walkErr != nil {
+					t.Logf("Error walking staging directory: %v", walkErr)
 				}
 
-				t.Errorf("Expected error but got none")
+				t.Errorf("Expected error containing '%s' but got none", tt.expectedError)
+				return
+			}
+
+			if !strings.Contains(err.Error(), tt.expectedError) {
+				t.Errorf("Expected error containing '%s', but got: %v", tt.expectedError, err)
 			}
 		})
 	}

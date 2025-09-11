@@ -225,7 +225,7 @@ func applySingleSourceCopy(ctx context.Context,
 }
 
 // applySingleFileCopy handles copying a single file using cp-like semantics:
-// - file -> dest (no slash) = copy to dest as filename
+// - file -> dest (no slash) = copy to dest as filename or dest/filename if dest is an existing directory
 // - file -> dest/ (with slash) = copy to dest/filename
 func applySingleFileCopy(ctx context.Context,
 	srcRoot *os.Root,
@@ -240,8 +240,14 @@ func applySingleFileCopy(ctx context.Context,
 		srcFileName := filepath.Base(srcPath)
 		finalDestPath = filepath.Join(destPath, srcFileName)
 	} else {
-		// Destination is the target filename
-		finalDestPath = destPath
+		// Check if destination path already exists as a directory
+		if destInfo, err := stagingRoot.Stat(destPath); err == nil && destInfo.IsDir() {
+			srcFileName := filepath.Base(srcPath)
+			finalDestPath = filepath.Join(destPath, srcFileName)
+		} else {
+			// Destination is the target filename
+			finalDestPath = destPath
+		}
 	}
 
 	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath)
