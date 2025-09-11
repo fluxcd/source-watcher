@@ -28,12 +28,21 @@ import (
 // an artifact in the ArtifactGeneratorStatus.ObservedSourcesDigest field.
 type ObservedSource struct {
 	// Digest is the artifact digest of the upstream source.
+	// +required
 	Digest string `json:"digest"`
 
 	// Revision is the artifact revision of the upstream source.
+	// +required
 	Revision string `json:"revision"`
 
+	// OriginRevision holds the origin revision of the upstream source,
+	// extracted from the 'org.opencontainers.image.revision' annotation,
+	// if available in the source artifact metadata.
+	// +optional
+	OriginRevision string `json:"originRevision,omitempty"`
+
 	// URL is the artifact URL of the upstream source.
+	// +required
 	URL string `json:"url"`
 }
 

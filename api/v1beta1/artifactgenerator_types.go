@@ -26,16 +26,17 @@ import (
 )
 
 const (
-	ArtifactGeneratorKind        = "ArtifactGenerator"
-	Finalizer                    = "source.extensions.fluxcd.io/finalizer"
-	ArtifactGeneratorLabel       = "source.extensions.fluxcd.io/generator"
-	ReconcileAnnotation          = "source.extensions.fluxcd.io/reconcile"
-	ReconciliationDisabledReason = "ReconciliationDisabled"
-	AccessDeniedReason           = "AccessDenied"
-	ValidationFailedReason       = "ValidationFailed"
-	SourceFetchFailedReason      = "SourceFetchFailed"
-	EnabledValue                 = "enabled"
-	DisabledValue                = "disabled"
+	ArtifactGeneratorKind            = "ArtifactGenerator"
+	Finalizer                        = "source.extensions.fluxcd.io/finalizer"
+	ArtifactGeneratorLabel           = "source.extensions.fluxcd.io/generator"
+	ArtifactOriginRevisionAnnotation = "org.opencontainers.image.revision"
+	ReconcileAnnotation              = "source.extensions.fluxcd.io/reconcile"
+	ReconciliationDisabledReason     = "ReconciliationDisabled"
+	AccessDeniedReason               = "AccessDenied"
+	ValidationFailedReason           = "ValidationFailed"
+	SourceFetchFailedReason          = "SourceFetchFailed"
+	EnabledValue                     = "enabled"
+	DisabledValue                    = "disabled"
 )
 
 // ArtifactGeneratorSpec defines the desired state of ArtifactGenerator.
@@ -101,6 +102,17 @@ type OutputArtifact struct {
 	// +kubebuilder:validation:MaxLength=64
 	// +optional
 	Revision string `json:"revision,omitempty"`
+
+	// OriginRevision is used to set the 'org.opencontainers.image.revision'
+	// annotation on the generated artifact metadata.
+	// If specified, it must point to an existing source alias in the format "@<alias>".
+	// If the referenced source has an origin revision (e.g. a Git commit SHA),
+	// it will be used to set the annotation on the generated artifact.
+	// If the referenced source does not have an origin revision, the field is ignored.
+	// +kubebuilder:validation:Pattern="^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)$"
+	// +kubebuilder:validation:MaxLength=64
+	// +optional
+	OriginRevision string `json:"originRevision,omitempty"`
 
 	// Copy defines a list of copy operations to perform from the sources to the generated artifact.
 	// The copy operations are performed in the order they are listed with existing files

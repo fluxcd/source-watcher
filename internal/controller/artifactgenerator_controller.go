@@ -206,12 +206,8 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			return ctrl.Result{}, err
 		}
 
-		// Override the revision with the one from the source if specified.
-		if oa.Revision != "" {
-			if rs, ok := remoteSources[strings.TrimPrefix(oa.Revision, "@")]; ok {
-				artifact.Revision = rs.Revision
-			}
-		}
+		// Set the revision and origin revision metadata on the artifact.
+		r.setArtifactRevisions(artifact, oa, remoteSources)
 
 		// Reconcile the ExternalArtifact corresponding to the built artifact.
 		// The ExternalArtifact will reference the artifact stored in the storage backend.
@@ -314,15 +310,23 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 				src.Name, src.Kind)
 		}
 
-		if source.GetArtifact() == nil {
+		artifact := source.GetArtifact()
+		if artifact == nil {
 			return nil, fmt.Errorf("source '%s/%s' is not ready", src.Kind, namespacedName)
 		}
 
-		observedSources[src.Alias] = swapi.ObservedSource{
-			Digest:   source.GetArtifact().Digest,
-			Revision: source.GetArtifact().Revision,
-			URL:      source.GetArtifact().URL,
+		observedSource := swapi.ObservedSource{
+			Digest:   artifact.Digest,
+			Revision: artifact.Revision,
+			URL:      artifact.URL,
 		}
+
+		// Capture the origin revision if present in the artifact metadata.
+		if originRev, ok := artifact.Metadata[swapi.ArtifactOriginRevisionAnnotation]; ok {
+			observedSource.OriginRevision = originRev
+		}
+
+		observedSources[src.Alias] = observedSource
 	}
 
 	return observedSources, nil
@@ -428,12 +432,15 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		return nil, fmt.Errorf("failed to patch ExternalArtifact status: %w", err)
 	}
 
+	// Log if the artifact is up to date or emit an event if it is new or has changed.
 	if obj.HasArtifactInInventory(ea.Name, ea.Namespace, artifact.Digest) {
 		log.Info(fmt.Sprintf("%s/%s/%s is up to date",
 			ea.Kind, ea.Namespace, ea.Name))
 	} else {
-		log.Info(fmt.Sprintf("%s/%s/%s reconciled with revision %s",
-			ea.Kind, ea.Namespace, ea.Name, artifact.Revision))
+		msg := fmt.Sprintf("%s/%s/%s reconciled with revision %s",
+			ea.Kind, ea.Namespace, ea.Name, artifact.Revision)
+		log.Info(msg)
+		r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
 	}
 
 	return &swapi.ExternalArtifactReference{
@@ -466,4 +473,31 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	}
 
 	return orphaned
+}
+
+// setArtifactRevisions sets the revision and origin revision metadata on the artifact
+// based on the output artifact configuration and available remote sources.
+func (r *ArtifactGeneratorReconciler) setArtifactRevisions(artifact *meta.Artifact,
+	oa swapi.OutputArtifact,
+	remoteSources map[string]swapi.ObservedSource) {
+	// Override the revision with the one from the source if specified.
+	if oa.Revision != "" {
+		if rs, ok := remoteSources[strings.TrimPrefix(oa.Revision, "@")]; ok {
+			artifact.Revision = rs.Revision
+		}
+	}
+
+	// Set the origin revision in the artifact metadata if available from the source.
+	if oa.OriginRevision != "" {
+		if artifact.Metadata == nil {
+			artifact.Metadata = make(map[string]string)
+		}
+		if rs, ok := remoteSources[strings.TrimPrefix(oa.OriginRevision, "@")]; ok {
+			if rs.OriginRevision != "" {
+				artifact.Metadata[swapi.ArtifactOriginRevisionAnnotation] = rs.OriginRevision
+			} else {
+				artifact.Metadata[swapi.ArtifactOriginRevisionAnnotation] = rs.Revision
+			}
+		}
+	}
 }

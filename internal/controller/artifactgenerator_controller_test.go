@@ -143,6 +143,11 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 
 		if inv.Name == fmt.Sprintf("%s-oci", obj.Name) {
 			ociArtifactDigest = externalArtifact.Status.Artifact.Digest
+
+			// Verify that the ExternalArtifact inherited the origin revision of the OCIRepository
+			originRev, ok := externalArtifact.Status.Artifact.Metadata[swapi.ArtifactOriginRevisionAnnotation]
+			g.Expect(ok).To(BeTrue(), "expected origin revision in metadata")
+			g.Expect(originRev).To(Equal("main@sha1:xyz123"))
 		}
 	}
 
@@ -245,9 +250,10 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	// Verify events were recorded
 	events := getEvents(obj.Name, obj.Namespace)
 	g.Expect(events).ToNot(BeEmpty())
-	g.Expect(events[0].Type).To(Equal(corev1.EventTypeNormal))
-	g.Expect(events[0].Reason).To(Equal(meta.ReadyCondition))
-	g.Expect(events[0].Message).To(ContainSubstring("reconciliation succeeded"))
+	for _, e := range events {
+		g.Expect(e.Type).To(Equal(corev1.EventTypeNormal))
+		g.Expect(e.Reason).To(Equal(meta.ReadyCondition))
+	}
 
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
@@ -571,7 +577,8 @@ func getArtifactGenerator(objectKey client.ObjectKey) *swapi.ArtifactGenerator {
 					},
 				},
 				{
-					Name: fmt.Sprintf("%s-oci", objectKey.Name),
+					Name:           fmt.Sprintf("%s-oci", objectKey.Name),
+					OriginRevision: fmt.Sprintf("@%s-oci", objectKey.Name),
 					Copy: []swapi.CopyOperation{
 						{
 							From: fmt.Sprintf("@%s-oci/**", objectKey.Name),
@@ -689,6 +696,9 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []testse
 			Revision:       revision,
 			Digest:         dig.String(),
 			LastUpdateTime: metav1.Now(),
+			Metadata: map[string]string{
+				swapi.ArtifactOriginRevisionAnnotation: "main@sha1:xyz123",
+			},
 		},
 	}
 

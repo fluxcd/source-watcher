@@ -90,7 +90,7 @@ spec:
       namespace: apps
   artifacts:
     - name: podinfo-composite
-      revision: "@chart"
+      originRevision: "@chart"
       copy:
         - from: "@chart/"
           to: "@artifact/"
@@ -229,11 +229,28 @@ regenerate the affected artifacts automatically.
 The `.spec.artifacts` field defines the list of ExternalArtifacts to be generated from the sources.
 Each artifact must specify:
 
-- `name`: The name of the generated ExternalArtifact resource. It must be unique in the context
+- `name` (required): The name of the generated ExternalArtifact resource. It must be unique in the context
   of the ArtifactGenerator and must conform to Kubernetes resource naming conventions.
+- `copy` (required): A list of copy operations to perform from sources to the artifact.
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
-- `copy`: A list of copy operations to perform from sources to the artifact.
+- `originRevision` (optional): A specific source origin revision to include in the artifact metadata
+  in the format `@alias`. This is useful for sources of type `OCIRepository` to track the origin Git commit.
+
+```yaml
+spec:
+  artifacts:
+    - name: my-app
+      revision: "@backend"
+      originRevision: "@frontend"
+      copy:
+        - from: "@backend/deploy/*.yaml"
+          to: "@artifact/backend/"
+        - from: "@frontend/manifests/**"
+          to: "@artifact/frontend/"
+        - from: "@config/envs/prod/configmap.yaml"
+          to: "@artifact/env.yaml"
+```
 
 #### Copy Operations
 
@@ -243,20 +260,6 @@ Each copy operation specifies how to copy files from sources into the generated 
   a source and `pattern` is a glob pattern or a specific file/directory path within that source.
 - `to`: Destination path in the format `@artifact/path` where `artifact` is
   the root of the generated artifact and `path` is the relative path to a file or directory.
-
-```yaml
-spec:
-  artifacts:
-    - name: my-app
-      revision: "@backend"  # Use backend source revision
-      copy:
-        - from: "@backend/deploy/*.yaml"
-          to: "@artifact/backend/"
-        - from: "@frontend/manifests/**"
-          to: "@artifact/frontend/"
-        - from: "@config/envs/prod/configmap.yaml"
-          to: "@artifact/env.yaml"
-```
 
 Copy operations use `cp`-like semantics:
 

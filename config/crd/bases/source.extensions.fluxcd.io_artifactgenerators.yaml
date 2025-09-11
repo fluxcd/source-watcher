@@ -79,6 +79,17 @@ spec:
                       maxLength: 253
                       pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
                       type: string
+                    originRevision:
+                      description: |-
+                        OriginRevision is used to set the 'org.opencontainers.image.revision'
+                        annotation on the generated artifact metadata.
+                        If specified, it must point to an existing source alias in the format "@<alias>".
+                        If the referenced source has an origin revision (e.g. a Git commit SHA),
+                        it will be used to set the annotation on the generated artifact.
+                        If the referenced source does not have an origin revision, the field is ignored.
+                      maxLength: 64
+                      pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)$
+                      type: string
                     revision:
                       description: |-
                         Revision is the revision of the generated artifact.
