@@ -33,7 +33,7 @@ spec:
       copy:
         - from: "@backend/deploy/**"
           to: "@artifact/my-app/backend/"
-        - from: "@frontend/deploy/**/*.yaml"
+        - from: "@frontend/deploy/*.yaml"
           to: "@artifact/my-app/frontend/"
         - from: "@config/envs/prod/configmap.yaml"
           to: "@artifact/my-app/env.yaml"
@@ -244,9 +244,10 @@ spec:
       revision: "@backend"
       originRevision: "@frontend"
       copy:
-        - from: "@backend/deploy/*.yaml"
+        - from: "@backend/deploy/**"
           to: "@artifact/backend/"
-        - from: "@frontend/manifests/**"
+          exclude: ["**/charts/**"]
+        - from: "@frontend/manifests/*.yaml"
           to: "@artifact/frontend/"
         - from: "@config/envs/prod/configmap.yaml"
           to: "@artifact/env.yaml"
@@ -260,6 +261,8 @@ Each copy operation specifies how to copy files from sources into the generated 
   a source and `pattern` is a glob pattern or a specific file/directory path within that source.
 - `to`: Destination path in the format `@artifact/path` where `artifact` is
   the root of the generated artifact and `path` is the relative path to a file or directory.
+- `exclude` (optional): A list of glob patterns to filter out from the source selection.
+  Any file matched by `from` that also matches an exclude pattern will be ignored.
 
 Copy operations use `cp`-like semantics:
 
@@ -270,11 +273,11 @@ Copy operations use `cp`-like semantics:
 Examples of copy operations:
 
 ```yaml
-# Copy file to specific path (like `cp source/config.yaml artifact/apps/app.yaml`)
+# Copy file to specific path - (like `cp source/config.yaml artifact/apps/app.yaml`)
 - from: "@source/config.yaml"
   to: "@artifact/apps/app.yaml"    # Creates apps/app.yaml file
 
-# Copy file to directory (like `cp source/config.yaml artifact/apps/`)
+# Copy file to directory - (like `cp source/config.yaml artifact/apps/`)
 - from: "@source/config.yaml"
   to: "@artifact/apps/"            # Creates apps/config.yaml
 
@@ -289,6 +292,9 @@ Examples of copy operations:
 # Copy files and dirs recursively - (like `cp -r source/configs/** artifact/apps/`)
 - from: "@source/configs/**"       # All files and sub-dirs under configs/  
   to: "@artifact/apps/"            # Creates apps/file1.yaml, apps/subdir/file2.yaml
+  exclude:
+    - "*.md"                       # Excludes all .md files
+    - "**/testdata/**"             # Excludes all files under any testdata/ dir
 ```
 
 ## Working with ArtifactGenerators

@@ -21,10 +21,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/fluxcd/pkg/apis/meta"
+	. "github.com/onsi/gomega"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -42,16 +42,8 @@ func TestBuild(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				testFile := filepath.Join(srcDir, "config.yaml")
-				if err := os.WriteFile(testFile, []byte("apiVersion: v1\nkind: ConfigMap"), 0o644); err != nil {
-					t.Fatalf("Failed to create test file: %v", err)
-				}
+				setupDirs(t, srcDir, workspaceDir)
+				createFile(t, srcDir, "config.yaml", "apiVersion: v1\nkind: ConfigMap")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-single-file",
@@ -70,20 +62,6 @@ func TestBuild(t *testing.T) {
 				return spec, sources, workspaceDir
 			},
 			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
-				if artifact == nil {
-					t.Fatal("Expected artifact to be returned")
-				}
-				if artifact.Path == "" {
-					t.Error("Expected artifact path to be set")
-				}
-				if artifact.Revision == "" {
-					t.Error("Expected revision to be set")
-				}
-				if artifact.URL == "" {
-					t.Error("Expected artifact URL to be set")
-				}
-
-				// Verify staging directory files and tar.gz archive contents
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "config.yaml"): "apiVersion: v1\nkind: ConfigMap",
 				}
@@ -98,21 +76,9 @@ func TestBuild(t *testing.T) {
 				ociDir := filepath.Join(tmpDir, "oci")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{gitDir, ociDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				files := map[string]string{
-					filepath.Join(gitDir, "app.yaml"):    "apiVersion: apps/v1",
-					filepath.Join(ociDir, "config.json"): `{"version": "1.0"}`,
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, gitDir, ociDir, workspaceDir)
+				createFile(t, gitDir, "app.yaml", "apiVersion: apps/v1")
+				createFile(t, ociDir, "config.json", `{"version": "1.0"}`)
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-multi-source",
@@ -154,16 +120,9 @@ func TestBuild(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
+				setupDirs(t, srcDir, workspaceDir)
 				for _, file := range []string{"deployment.yaml", "service.yaml", "configmap.yaml"} {
-					if err := os.WriteFile(filepath.Join(srcDir, file), []byte("apiVersion: v1"), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", file, err)
-					}
+					createFile(t, srcDir, file, "apiVersion: v1")
 				}
 
 				spec := &swapi.OutputArtifact{
@@ -199,21 +158,9 @@ func TestBuild(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{filepath.Join(srcDir, "subdir"), workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				files := map[string]string{
-					filepath.Join(srcDir, "root.yaml"):             "root: content",
-					filepath.Join(srcDir, "subdir", "nested.yaml"): "nested: content",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, filepath.Join(srcDir, "subdir"), workspaceDir)
+				createFile(t, srcDir, "root.yaml", "root: content")
+				createFile(t, filepath.Join(srcDir, "subdir"), "nested.yaml", "nested: content")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-root-to-root",
@@ -246,21 +193,9 @@ func TestBuild(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{filepath.Join(srcDir, "subdir"), workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				files := map[string]string{
-					filepath.Join(srcDir, "root.yaml"):             "root: content",
-					filepath.Join(srcDir, "subdir", "nested.yaml"): "nested: content",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, filepath.Join(srcDir, "subdir"), workspaceDir)
+				createFile(t, srcDir, "root.yaml", "root: content")
+				createFile(t, filepath.Join(srcDir, "subdir"), "nested.yaml", "nested: content")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-recursive",
@@ -294,29 +229,11 @@ func TestBuild(t *testing.T) {
 				src2Dir := filepath.Join(tmpDir, "source2")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				// Create subdirectories in both sources
-				for _, dir := range []string{
-					filepath.Join(src1Dir, "config"),
-					filepath.Join(src2Dir, "config"),
-					workspaceDir,
-				} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				// Create files in both sources
-				files := map[string]string{
-					filepath.Join(src1Dir, "config", "app.yaml"):      "source1: app",
-					filepath.Join(src1Dir, "config", "database.yaml"): "source1: db",
-					filepath.Join(src2Dir, "config", "app.yaml"):      "source2: app",
-					filepath.Join(src2Dir, "config", "network.yaml"):  "source2: net",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, filepath.Join(src1Dir, "config"), filepath.Join(src2Dir, "config"), workspaceDir)
+				createFile(t, filepath.Join(src1Dir, "config"), "app.yaml", "source1: app")
+				createFile(t, filepath.Join(src1Dir, "config"), "database.yaml", "source1: db")
+				createFile(t, filepath.Join(src2Dir, "config"), "app.yaml", "source2: app")
+				createFile(t, filepath.Join(src2Dir, "config"), "network.yaml", "source2: net")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-subdir-overwrite",
@@ -360,25 +277,11 @@ func TestBuild(t *testing.T) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
-
-				// Create source directory with files
 				configDir := filepath.Join(srcDir, "config")
-				for _, dir := range []string{configDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
 
-				// Create files in config directory
-				files := map[string]string{
-					filepath.Join(configDir, "app.yaml"): "app: config",
-					filepath.Join(configDir, "db.yaml"):  "db: config",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, configDir, workspaceDir)
+				createFile(t, configDir, "app.yaml", "app: config")
+				createFile(t, configDir, "db.yaml", "db: config")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-dir-no-slash",
@@ -411,25 +314,11 @@ func TestBuild(t *testing.T) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
-
-				// Create source directory with files
 				configDir := filepath.Join(srcDir, "config")
-				for _, dir := range []string{configDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
 
-				// Create files in config directory
-				files := map[string]string{
-					filepath.Join(configDir, "app.yaml"): "app: config",
-					filepath.Join(configDir, "db.yaml"):  "db: config",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, configDir, workspaceDir)
+				createFile(t, configDir, "app.yaml", "app: config")
+				createFile(t, configDir, "db.yaml", "db: config")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-dir-slash",
@@ -464,16 +353,8 @@ func TestBuild(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				// Create source file
-				if err := os.WriteFile(filepath.Join(srcDir, "config.yaml"), []byte("a: test"), 0o644); err != nil {
-					t.Fatalf("Failed to create config.yaml: %v", err)
-				}
+				setupDirs(t, srcDir, workspaceDir)
+				createFile(t, srcDir, "config.yaml", "a: test")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-file-to-dir",
@@ -505,26 +386,12 @@ func TestBuild(t *testing.T) {
 				tmpDir := t.TempDir()
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
-
-				// Create config directory structure
 				configDir := filepath.Join(srcDir, "config")
 				subDir := filepath.Join(configDir, "subdir")
-				for _, dir := range []string{subDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
 
-				// Create files in config structure
-				files := map[string]string{
-					filepath.Join(configDir, "app.yaml"): "app: config",
-					filepath.Join(subDir, "db.yaml"):     "db: config",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, subDir, workspaceDir)
+				createFile(t, configDir, "app.yaml", "app: config")
+				createFile(t, subDir, "db.yaml", "db: config")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-glob-prefix-strip",
@@ -549,7 +416,6 @@ func TestBuild(t *testing.T) {
 					filepath.Join(stagingDir, "dest", "app.yaml"):          "app: config",
 					filepath.Join(stagingDir, "dest", "subdir", "db.yaml"): "db: config",
 				}
-
 				verifyContents(t, testStorage, artifact, stagingDir, expectedFiles)
 			},
 		},
@@ -557,33 +423,16 @@ func TestBuild(t *testing.T) {
 			name: "file-to-file copy should not treat destination as directory",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
-				repoDir := filepath.Join(tmpDir, "repo")
-				chartDir := filepath.Join(tmpDir, "chart")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
+				repoDir := filepath.Join(tmpDir, "repo")
+				chartDir := filepath.Join(tmpDir, "chart")
 				chartsDir := filepath.Join(repoDir, "charts", "podinfo")
-				for _, dir := range []string{chartsDir, chartDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
 
-				// Create the source file that should be copied
-				valuesFile := filepath.Join(chartsDir, "values-prod.yaml")
-				if err := os.WriteFile(valuesFile, []byte("env: production"), 0o644); err != nil {
-					t.Fatalf("Failed to create values file: %v", err)
-				}
-
-				// Create chart content
-				files := map[string]string{
-					filepath.Join(chartDir, "Chart.yaml"):  "name: podinfo",
-					filepath.Join(chartDir, "values.yaml"): "name: podinfo",
-				}
-				for filePath, content := range files {
-					if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-						t.Fatalf("Failed to create file %s: %v", filePath, err)
-					}
-				}
+				setupDirs(t, chartsDir, chartDir, workspaceDir)
+				createFile(t, chartsDir, "values-prod.yaml", "env: production")
+				createFile(t, chartDir, "Chart.yaml", "name: podinfo")
+				createFile(t, chartDir, "values.yaml", "name: podinfo")
 
 				spec := &swapi.OutputArtifact{
 					Name:     "cp-file-to-file",
@@ -622,19 +471,9 @@ func TestBuild(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, filepath.Join(srcDir, "subdir"), workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
-
-				// Create source files
-				if err := os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("content1"), 0o644); err != nil {
-					t.Fatalf("Failed to create source file: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("content2"), 0o644); err != nil {
-					t.Fatalf("Failed to create source file: %v", err)
-				}
+				setupDirs(t, srcDir, filepath.Join(srcDir, "subdir"), workspaceDir)
+				createFile(t, srcDir, "file1.txt", "content1")
+				createFile(t, filepath.Join(srcDir, "subdir"), "file2.txt", "content2")
 
 				spec := &swapi.OutputArtifact{
 					Name: "cp-file-to-existing-dir",
@@ -668,15 +507,12 @@ func TestBuild(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			spec, sources, workspace := tt.setupFunc(t)
-
 			artifact, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-			} else {
-				stagingDir := filepath.Join(workspace, spec.Name)
-				tt.validateFunc(t, artifact, stagingDir)
-			}
+			g.Expect(err).ToNot(HaveOccurred())
+			stagingDir := filepath.Join(workspace, spec.Name)
+			tt.validateFunc(t, artifact, stagingDir)
 		})
 	}
 }
@@ -695,11 +531,7 @@ func TestBuildErrors(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
+				setupDirs(t, srcDir, workspaceDir)
 
 				spec := &swapi.OutputArtifact{
 					Name: "error-source-file",
@@ -726,11 +558,7 @@ func TestBuildErrors(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
+				setupDirs(t, srcDir, workspaceDir)
 
 				spec := &swapi.OutputArtifact{
 					Name: "error-glob-match",
@@ -757,11 +585,7 @@ func TestBuildErrors(t *testing.T) {
 				srcDir := filepath.Join(tmpDir, "source")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				for _, dir := range []string{srcDir, workspaceDir} {
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatalf("Failed to create dir %s: %v", dir, err)
-					}
-				}
+				setupDirs(t, srcDir, workspaceDir)
 
 				spec := &swapi.OutputArtifact{
 					Name: "error-glob-pattern",
@@ -813,6 +637,7 @@ func TestBuildErrors(t *testing.T) {
 			name:          "error when staging directory creation fails",
 			expectedError: "failed to create staging dir",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
 				// Use a non-existent parent directory to cause mkdir failure
 				workspaceDir := "/nonexistent/workspace"
 
@@ -827,7 +652,7 @@ func TestBuildErrors(t *testing.T) {
 				}
 
 				sources := map[string]string{
-					"source": "/tmp",
+					"source": tmpDir,
 				}
 
 				return spec, sources, workspaceDir
@@ -837,15 +662,14 @@ func TestBuildErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			spec, sources, workspace := tt.setupFunc(t)
 
 			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
 			if err == nil {
 				t.Logf("Staging directory contents:")
 				walkErr := filepath.Walk(filepath.Join(workspace, spec.Name), func(path string, info os.FileInfo, err error) error {
-					if err != nil {
-						return err
-					}
+					g.Expect(err).To(BeNil())
 					relPath, _ := filepath.Rel(workspace, path)
 					if info.IsDir() {
 						t.Logf("+ %s/", relPath)
@@ -857,14 +681,360 @@ func TestBuildErrors(t *testing.T) {
 				if walkErr != nil {
 					t.Logf("Error walking staging directory: %v", walkErr)
 				}
-
-				t.Errorf("Expected error containing '%s' but got none", tt.expectedError)
 				return
 			}
 
-			if !strings.Contains(err.Error(), tt.expectedError) {
-				t.Errorf("Expected error containing '%s', but got: %v", tt.expectedError, err)
+			g.Expect(err.Error()).To(ContainSubstring(tt.expectedError))
+		})
+	}
+}
+
+func TestBuildWithExcludes(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupFunc     func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
+		validateFunc  func(t *testing.T, artifact *meta.Artifact, stagingDir string)
+		expectError   bool
+		expectedError string
+	}{
+		{
+			name: "exclude single file extension",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				// Create files with different extensions
+				createFile(t, srcDir, "app.yaml", "yaml content")
+				createFile(t, srcDir, "config.json", "json content")
+				createFile(t, srcDir, "README.md", "markdown content")
+				createFile(t, srcDir, "notes.md", "more markdown")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/**",
+							To:      "@artifact/",
+							Exclude: []string{"*.md"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should have yaml and json files
+				g.Expect(filepath.Join(artifactDir, "app.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "config.json")).To(BeAnExistingFile())
+
+				// Should NOT have markdown files
+				g.Expect(filepath.Join(artifactDir, "README.md")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "notes.md")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			name: "exclude directory recursively",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				// Create files in various directories
+				createFile(t, srcDir, "app.yaml", "main app config")
+				createDir(t, srcDir, "testdata")
+				createFile(t, filepath.Join(srcDir, "testdata"), "test.yaml", "test config")
+				createFile(t, filepath.Join(srcDir, "testdata"), "fixture.json", "test fixture")
+
+				createDir(t, srcDir, "configs")
+				createFile(t, filepath.Join(srcDir, "configs"), "prod.yaml", "prod config")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/**",
+							To:      "@artifact/",
+							Exclude: []string{"**/testdata/**"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should have main app and configs
+				g.Expect(filepath.Join(artifactDir, "app.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "configs", "prod.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have testdata directory or its contents
+				g.Expect(filepath.Join(artifactDir, "testdata")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "testdata", "test.yaml")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "testdata", "fixture.json")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			name: "multiple exclude patterns",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				// Create various files and directories
+				createFile(t, srcDir, "app.yaml", "app config")
+				createFile(t, srcDir, "README.md", "documentation")
+				createFile(t, srcDir, "temp.tmp", "temporary file")
+				createFile(t, srcDir, ".hidden", "hidden file")
+
+				createDir(t, srcDir, "docs")
+				createFile(t, filepath.Join(srcDir, "docs"), "guide.md", "user guide")
+
+				createDir(t, srcDir, "tests")
+				createFile(t, filepath.Join(srcDir, "tests"), "test.go", "test file")
+
+				spec := &swapi.OutputArtifact{
+					Name: "test-artifact",
+					Copy: []swapi.CopyOperation{
+						{
+							From: "@source/**",
+							To:   "@artifact/",
+							Exclude: []string{
+								"*.md",        // Exclude markdown files
+								"*.tmp",       // Exclude temp files
+								"**/.*",       // Exclude hidden files
+								"**/tests/**", // Exclude tests directory
+							},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should have app.yaml
+				g.Expect(filepath.Join(artifactDir, "app.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have excluded files
+				g.Expect(filepath.Join(artifactDir, "README.md")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "temp.tmp")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, ".hidden")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "tests")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "tests", "test.go")).ToNot(BeAnExistingFile())
+
+				// docs directory should exist but be empty (guide.md was excluded)
+				g.Expect(filepath.Join(artifactDir, "docs")).To(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "docs", "guide.md")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			name: "exclude with glob patterns",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				// Create files matching glob pattern
+				createFile(t, srcDir, "app.yaml", "app config")
+				createFile(t, srcDir, "config.yaml", "config")
+				createFile(t, srcDir, "secret.yaml", "secret")
+				createFile(t, srcDir, "other.json", "other config")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/*.yaml",
+							To:      "@artifact/configs/",
+							Exclude: []string{"secret.yaml"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should have non-secret yaml files
+				g.Expect(filepath.Join(artifactDir, "configs", "app.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "configs", "config.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have secret.yaml
+				g.Expect(filepath.Join(artifactDir, "configs", "secret.yaml")).ToNot(BeAnExistingFile())
+
+				// Should NOT have json file (not matched by glob)
+				g.Expect(filepath.Join(artifactDir, "configs", "other.json")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			name: "exclude single file copy",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createFile(t, srcDir, "secret.yaml", "secret content")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/secret.yaml",
+							To:      "@artifact/config.yaml",
+							Exclude: []string{"secret.yaml"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should NOT have any files (excluded single file)
+				g.Expect(filepath.Join(artifactDir, "config.yaml")).ToNot(BeAnExistingFile())
+
+				// The artifact directory should be empty or contain only directories
+				entries, err := os.ReadDir(artifactDir)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(entries).To(HaveLen(0))
+			},
+		},
+		{
+			name: "all files excluded - error",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createFile(t, srcDir, "test.md", "test file")
+				createFile(t, srcDir, "other.md", "other file")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/*.md",
+							To:      "@artifact/",
+							Exclude: []string{"*.md"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				// This test expects an error, so validateFunc won't be called
+			},
+			expectError:   true,
+			expectedError: "all files matching pattern",
+		},
+		{
+			name: "invalid exclude - error",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/*.md",
+							To:      "@artifact/",
+							Exclude: []string{"[*.md"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+				// This test expects an error, so validateFunc won't be called
+			},
+			expectError:   true,
+			expectedError: "invalid exclude pattern",
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			// Setup test data
+			spec, sources, workspaceDir := tt.setupFunc(t)
+
+			// Use the global test builder
+			artifact, err := testBuilder.Build(context.TODO(), spec, sources, fmt.Sprintf("exclude-%d", i), workspaceDir)
+
+			if tt.expectError {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tt.expectedError))
+				return
 			}
+
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(artifact).ToNot(BeNil())
+
+			// Validate the result
+			tt.validateFunc(t, artifact, workspaceDir)
 		})
 	}
 }

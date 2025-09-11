@@ -17,5 +17,6 @@ spec:
       copy:
         - from: "@chart/**"
           to: "@artifact/"
+          exclude: ["*.md"]
         - from: "@repo/charts/podinfo/values-prod.yaml"
           to: "@artifact/podinfo/values.yaml"

@@ -53,6 +53,14 @@ spec:
                         being overwritten by later copy operations.
                       items:
                         properties:
+                          exclude:
+                            description: |-
+                              Exclude specifies a list of glob patterns to exclude
+                              files and dirs matched by the 'From' field.
+                            items:
+                              type: string
+                            maxItems: 100
+                            type: array
                           from:
                             description: |-
                               From specifies the source (by alias) and the glob pattern to match files.

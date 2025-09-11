@@ -125,3 +125,25 @@ func verifyContents(t *testing.T,
 		}
 	}
 }
+
+func setupDirs(t *testing.T, dirs ...string) {
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("Failed to create dir %s: %v", dir, err)
+		}
+	}
+}
+
+func createDir(t *testing.T, parent, name string) {
+	path := filepath.Join(parent, name)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("Failed to create dir %s: %v", path, err)
+	}
+}
+
+func createFile(t *testing.T, dir, name, content string) {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("Failed to create file %s: %v", path, err)
+	}
+}

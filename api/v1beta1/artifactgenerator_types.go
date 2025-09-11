@@ -137,6 +137,12 @@ type CopyOperation struct {
 	// +kubebuilder:validation:MaxLength=1024
 	// +required
 	To string `json:"to"`
+
+	// Exclude specifies a list of glob patterns to exclude
+	// files and dirs matched by the 'From' field.
+	// +kubebuilder:validation:MaxItems=100
+	// +optional
+	Exclude []string `json:"exclude,omitempty"`
 }
 
 // ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.

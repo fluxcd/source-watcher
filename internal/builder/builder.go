@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"golang.org/x/mod/sumdb/dirhash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -129,7 +130,7 @@ func applyCopyOperations(ctx context.Context,
 // applyCopyOperation applies a single copy operation from the sources to the staging directory.
 // This function implements cp-like semantics by first analyzing the source pattern to determine
 // if it's a glob, direct file/directory reference, or wildcard pattern, then making copy decisions
-// based on the actual source types found.
+// based on the actual source types found. Files matching exclude patterns are filtered out.
 func applyCopyOperation(ctx context.Context,
 	op swapi.CopyOperation,
 	sources map[string]string,
@@ -147,6 +148,12 @@ func applyCopyOperation(ctx context.Context,
 	srcDir, exists := sources[srcAlias]
 	if !exists {
 		return fmt.Errorf("source alias '%s' not found", srcAlias)
+	}
+
+	for _, pattern := range op.Exclude {
+		if _, err := doublestar.Match(pattern, "."); err != nil {
+			return fmt.Errorf("invalid exclude pattern '%s'", pattern)
+		}
 	}
 
 	// Create secure roots for file operations
@@ -168,7 +175,7 @@ func applyCopyOperation(ctx context.Context,
 
 	if !isGlobPattern {
 		// Direct path reference - check what it actually is first (cp-like behavior)
-		return applySingleSourceCopy(ctx, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash)
+		return applySingleSourceCopy(ctx, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash, op.Exclude)
 	}
 
 	// Glob pattern - find all matches and copy each
@@ -181,15 +188,27 @@ func applyCopyOperation(ctx context.Context,
 		return fmt.Errorf("no files match pattern '%s' in source '%s'", srcPattern, srcAlias)
 	}
 
-	// For glob patterns, destination should be a directory (like cp *.txt dest/)
+	// Filter out excluded files
+	filteredMatches := make([]string, 0, len(matches))
 	for _, match := range matches {
+		if !shouldExclude(match, op.Exclude) {
+			filteredMatches = append(filteredMatches, match)
+		}
+	}
+
+	if len(filteredMatches) == 0 {
+		return fmt.Errorf("all files matching pattern '%s' in source '%s' were excluded", srcPattern, srcAlias)
+	}
+
+	// For glob patterns, destination should be a directory (like cp *.txt dest/)
+	for _, match := range filteredMatches {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		// Calculate destination path based on glob pattern type
 		destFile := calculateGlobDestination(srcPattern, match, destRelPath)
-		if err := copyFileWithRoots(ctx, srcRoot, match, stagingRoot, destFile); err != nil {
+		if err := copyFileWithRoots(ctx, srcRoot, match, stagingRoot, destFile, op.Exclude); err != nil {
 			return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
 		}
 	}
@@ -204,7 +223,8 @@ func applySingleSourceCopy(ctx context.Context,
 	srcPath string,
 	stagingRoot *os.Root,
 	destPath string,
-	destEndsWithSlash bool) error {
+	destEndsWithSlash bool,
+	excludePatterns []string) error {
 	// Clean the source path to handle trailing slashes
 	srcPath = filepath.Clean(srcPath)
 
@@ -218,9 +238,9 @@ func applySingleSourceCopy(ctx context.Context,
 	}
 
 	if srcInfo.IsDir() {
-		return applySingleDirectoryCopy(ctx, srcRoot, srcPath, stagingRoot, destPath)
+		return applySingleDirectoryCopy(ctx, srcRoot, srcPath, stagingRoot, destPath, excludePatterns)
 	} else {
-		return applySingleFileCopy(ctx, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash)
+		return applySingleFileCopy(ctx, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash, excludePatterns)
 	}
 }
 
@@ -232,7 +252,12 @@ func applySingleFileCopy(ctx context.Context,
 	srcPath string,
 	stagingRoot *os.Root,
 	destPath string,
-	destEndsWithSlash bool) error {
+	destEndsWithSlash bool,
+	excludePatterns []string) error {
+	// Check if the file should be excluded
+	if shouldExclude(srcPath, excludePatterns) {
+		return nil // Skip excluded file
+	}
 	var finalDestPath string
 
 	if destEndsWithSlash {
@@ -250,7 +275,7 @@ func applySingleFileCopy(ctx context.Context,
 		}
 	}
 
-	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath)
+	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath, excludePatterns)
 }
 
 // applySingleDirectoryCopy handles copying a single directory using cp-like semantics.
@@ -260,11 +285,12 @@ func applySingleDirectoryCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	destPath string) error {
+	destPath string,
+	excludePatterns []string) error {
 	srcDirName := filepath.Base(srcPath)
 	finalDestPath := filepath.Join(destPath, srcDirName)
 
-	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath)
+	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath, excludePatterns)
 }
 
 // containsGlobChars returns true if the path contains glob metacharacters
@@ -318,19 +344,21 @@ func parseCopyDestinationRelative(to string) (string, error) {
 	return strings.TrimPrefix(to, "@artifact/"), nil
 }
 
-// copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root.
+// copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root,
+// excluding files matching exclude patterns.
 func copyFileWithRoots(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	destPath string) error {
+	destPath string,
+	excludePatterns []string) error {
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
+		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath, excludePatterns)
 	}
 
 	return copyRegularFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
@@ -383,12 +411,14 @@ func copyRegularFileWithRoots(ctx context.Context,
 	return destFile.Chmod(srcInfo.Mode())
 }
 
-// copyDirWithRoots copies a directory recursively using os.Root.
+// copyDirWithRoots copies a directory recursively using os.Root,
+// skipping files and sub-dirs matching exclude patterns.
 func copyDirWithRoots(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	destPath string) error {
+	destPath string,
+	excludePatterns []string) error {
 	return fs.WalkDir(srcRoot.FS(), srcPath, func(path string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -408,6 +438,16 @@ func copyDirWithRoots(ctx context.Context,
 		if relPath == "." {
 			// Create the destination directory
 			return createDirRecursive(stagingRoot, destPath)
+		}
+
+		// Check if this path should be excluded
+		if shouldExclude(relPath, excludePatterns) {
+			if d.IsDir() {
+				// Skip entire directory
+				return fs.SkipDir
+			}
+			// Skip file
+			return nil
 		}
 
 		destFilePath := filepath.Join(destPath, relPath)
@@ -448,6 +488,23 @@ func createDirRecursive(root *os.Root, path string) error {
 	}
 
 	return err
+}
+
+// shouldExclude checks if a path matches any of the exclude patterns.
+func shouldExclude(filePath string, excludePatterns []string) bool {
+	if len(excludePatterns) == 0 {
+		return false
+	}
+
+	for _, pattern := range excludePatterns {
+		// We validate the patterns when parsing the copy operation,
+		// so it's safe to use MatchUnvalidated here.
+		if doublestar.MatchUnvalidated(pattern, filePath) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // MkdirTempAbs creates a tmp dir and returns the absolute path to the dir.
