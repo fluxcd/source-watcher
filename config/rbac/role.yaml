@@ -2,19 +2,43 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: source-reader
+  name: manager-role
 rules:
 - apiGroups:
-  - source.toolkit.fluxcd.io
+  - source.extensions.fluxcd.io
   resources:
-  - gitrepositories
+  - artifactgenerators
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patchStatus
+  - update
   - watch
+- apiGroups:
+  - source.extensions.fluxcd.io
+  resources:
+  - artifactgenerators/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - source.extensions.fluxcd.io
+  resources:
+  - artifactgenerators/status
+  verbs:
+  - get
+  - patchStatus
+  - update
 - apiGroups:
   - source.toolkit.fluxcd.io
   resources:
-  - gitrepositories/status
+  - '*'
   verbs:
+  - create
+  - delete
   - get
+  - list
+  - patchStatus
+  - update
+  - watch

@@ -40,9 +40,9 @@ meeting](https://docs.google.com/document/d/1l_M0om0qUEN_NNiGgpqJ2tvsF2iioHkaARD
 ### How to run the test suite
 
 Prerequisites:
-* go >= 1.20
-* docker >= 20.10
-* kustomize >= 4.4
+* go >= 1.25
+* docker >= 28.3
+* kustomize >= 5.7
 
 You can run the unit tests by simply doing
 

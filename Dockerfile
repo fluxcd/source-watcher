@@ -1,8 +1,9 @@
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.25
 ARG XX_VERSION=1.6.1
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:${XX_VERSION} AS xx
 
+# Docker buildkit multi-arch build requires golang alpine
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
 
 # Copy the build utilities.
@@ -10,31 +11,37 @@ COPY --from=xx / /
 
 ARG TARGETPLATFORM
 
+# Configure workspace
 WORKDIR /workspace
 
-# copy modules manifests
+# Copy api submodule
+COPY api/ api/
+
+# Copy modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
 
-# cache modules
+# Cache modules
 RUN go mod download
 
-# copy source code
-COPY main.go main.go
-COPY controllers/ controllers/
+# Copy source code
+COPY internal/ internal/
+COPY cmd/ cmd/
 
-# build
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+# build without specifing the arch
 ENV CGO_ENABLED=0
-RUN xx-go build -a -o source-watcher main.go
+RUN xx-go build -trimpath -a -o source-watcher cmd/main.go
 
-FROM alpine:3.21
+FROM alpine:3.22
 
-RUN apk add --no-cache ca-certificates tini
+ARG TARGETPLATFORM
+RUN apk --no-cache add ca-certificates \
+  && update-ca-certificates
 
 COPY --from=builder /workspace/source-watcher /usr/local/bin/
 
-RUN addgroup -S controller && adduser -S controller -G controller
-
-USER controller
-
-ENTRYPOINT [ "/sbin/tini", "--", "source-watcher" ]
+USER 65534:65534
+ENTRYPOINT [ "source-watcher" ]

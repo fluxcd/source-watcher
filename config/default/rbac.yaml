@@ -1,0 +1,87 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: source-controllers
+rules:
+  - apiGroups: ['source.toolkit.fluxcd.io']
+    resources: ['*']
+    verbs: ['*']
+  - apiGroups: ['source.extensions.fluxcd.io']
+    resources: ['*']
+    verbs: ['*']
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - secrets
+      - configmaps
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  # required by leader election
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - "coordination.k8s.io"
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # required for object-level workload identity
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts/token
+    verbs:
+      - create
+  # required for flow control
+  - nonResourceURLs:
+      - /livez/ping
+    verbs:
+      - head
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: source-controllers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: source-controllers
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: source-system

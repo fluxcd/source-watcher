@@ -1,0 +1,26 @@
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: chart-gen
+spec:
+  sources:
+    - alias: chart
+      kind: OCIRepository
+      name: podinfo-chart
+    - alias: repo
+      kind: GitRepository
+      name: podinfo-repo
+  artifacts:
+    - name: podinfo
+      revision: "@chart"
+      copy:
+        - from: "@chart/**"
+          to: "@artifact/"
+          exclude: ["*.md"]
+        - from: "@repo/charts/podinfo/values.yaml"
+          to: "@artifact/podinfo/values.yaml"
+          strategy: Overwrite
+        - from: "@repo/charts/podinfo/values-prod.yaml"
+          to: "@artifact/podinfo/values.yaml"
+          strategy: Merge

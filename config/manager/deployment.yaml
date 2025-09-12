@@ -9,6 +9,8 @@ spec:
     matchLabels:
       app: source-watcher
   replicas: 1
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
@@ -25,9 +27,21 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ "ALL" ]
+            seccompProfile:
+              type: RuntimeDefault
           ports:
+            - containerPort: 9090
+              name: http
+              protocol: TCP
             - containerPort: 8080
               name: http-prom
+              protocol: TCP
+            - containerPort: 9440
+              name: healthz
+              protocol: TCP
           env:
             - name: RUNTIME_NAMESPACE
               valueFrom:
@@ -35,12 +49,14 @@ spec:
                   fieldPath: metadata.namespace
           args:
             - --log-level=info
-            - --log-json
+            - --log-encoding=json
             - --enable-leader-election
+            - --storage-path=/data
+            - --storage-adv-addr=source-watcher.$(RUNTIME_NAMESPACE).svc.cluster.local.
           livenessProbe:
             httpGet:
-              port: http
-              path: /
+              port: healthz
+              path: /healthz
           readinessProbe:
             httpGet:
               port: http
@@ -53,9 +69,12 @@ spec:
               cpu: 50m
               memory: 64Mi
           volumeMounts:
+            - name: data
+              mountPath: /data
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: data
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
-

@@ -44,7 +44,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
           cache-dependency-path: |
             **/go.sum
             **/go.mod
@@ -91,6 +91,12 @@ jobs:
         run: |
           cosign sign --yes fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.version }}
           cosign sign --yes ghcr.io/fluxcd/${{ env.CONTROLLER }}:${{ steps.prep.outputs.version }}
+      - name: Generate release artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p config/release
+          kustomize build ./config/crd > ./config/release/${{ env.CONTROLLER }}.crds.yaml
+          kustomize build ./config/manager > ./config/release/${{ env.CONTROLLER }}.deployment.yaml
       - name: GoReleaser publish signed SBOM
         id: run-goreleaser
         if: startsWith(github.ref, 'refs/tags/v')

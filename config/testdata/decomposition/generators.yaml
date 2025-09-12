@@ -1,0 +1,22 @@
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: app-gen
+spec:
+  sources:
+    - alias: git
+      kind: GitRepository
+      name: podinfo-repo
+  artifacts:
+    - name: podinfo-frontend
+      copy:
+        - from: "@git/deploy/bases/frontend/"
+          to: "@artifact/"
+    - name: podinfo-backend
+      copy:
+        - from: "@git/deploy/bases/backend/*.yaml"
+          to: "@artifact/"
+    - name: podinfo-cache
+      copy:
+        - from: "@git/deploy/bases/cache/**"
+          to: "@artifact/"

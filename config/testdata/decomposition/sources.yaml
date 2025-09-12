@@ -1,0 +1,10 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: podinfo-repo
+spec:
+  interval: 10m
+  url: https://github.com/stefanprodan/podinfo
+  ref:
+    semver: "*"

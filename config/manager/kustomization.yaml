@@ -2,3 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - deployment.yaml
+  - service.yaml
+images:
+  - name: fluxcd/source-watcher
+    newName: fluxcd/source-watcher
+    newTag: v2.0.0-rc.1

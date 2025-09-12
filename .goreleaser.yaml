@@ -4,6 +4,8 @@ builds:
   - skip: true
 
 release:
+  extra_files:
+    - glob: config/release/*.yaml
   prerelease: auto
   footer: |
     ## Container images
@@ -20,29 +22,32 @@ changelog:
   use: github-native
 
 checksum:
-  name_template: 'checksums.txt'
+  extra_files:
+    - glob: config/release/*.yaml
 
 source:
   enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source_code"
 
 sboms:
-  - artifacts: archive
   - id: source
     artifacts: source
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_sbom.spdx.json"
 
 # signs the checksum file
-# all files (including the sboms) are included in the checksum, so we don't need to sign each one if we don't want to
+# all files (including the sboms) are included in the checksum
 # https://goreleaser.com/customization/sign
 signs:
   - cmd: cosign
     env:
       - COSIGN_EXPERIMENTAL=1
-    certificate: '${artifact}.pem'
+    certificate: "${artifact}.pem"
     args:
       - sign-blob
       - "--yes"
-      - '--output-certificate=${certificate}'
-      - '--output-signature=${signature}'
-      - '${artifact}'
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
     artifacts: checksum
     output: true

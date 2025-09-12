@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: source-watcher
+  labels:
+    control-plane: source-watcher
+spec:
+  type: ClusterIP
+  selector:
+    app: source-watcher
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: http
