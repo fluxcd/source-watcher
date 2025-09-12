@@ -11,10 +11,22 @@ spec:
     kind: ArtifactGenerator
     listKind: ArtifactGeneratorList
     plural: artifactgenerators
+    shortNames:
+    - ag
     singular: artifactgenerator
   scope: Namespaced
   versions:
-  - name: v1beta1
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: Status
+      type: string
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: ArtifactGenerator is the Schema for the artifactgenerators API.

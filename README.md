@@ -1,12 +1,17 @@
 # source-watcher
 
-[![test](https://github.com/fluxcd/source-watcher/workflows/test/badge.svg)](https://github.com/fluxcd/source-watcher/actions)
+[![test](https://github.com/fluxcd/source-watcher/workflows/e2e/badge.svg)](https://github.com/fluxcd/source-watcher/actions)
+[![report](https://goreportcard.com/badge/github.com/fluxcd/source-watcher)](https://goreportcard.com/report/github.com/fluxcd/source-watcher)
+[![license](https://img.shields.io/github/license/fluxcd/source-watcher.svg)](https://github.com/fluxcd/source-watcher/blob/main/LICENSE)
+[![release](https://img.shields.io/github/release/fluxcd/source-watcher/all.svg)](https://github.com/fluxcd/source-watcher/releases)
 
-A Flux extension controller that enables advanced source composition and decomposition patterns for GitOps workflows.
+The source-watcher is a [GitOps toolkit](https://fluxcd.io/flux/components/) controller
+that extends Flux with advanced source composition and decomposition patterns.
 
 ## Overview
 
-source-watcher introduces the **ArtifactGenerator** API, which allows you to:
+The source-watcher controller implements the [ArtifactGenerator](docs/README.md) API,
+which allows Flux users to:
 
 - 🔗 **Compose** multiple Flux sources (GitRepository, OCIRepository, Bucket) into a single deployable artifact
 - 📦 **Decompose** monorepos into multiple independent artifacts with separate deployment lifecycles
@@ -99,7 +104,7 @@ spec:
 ```
 
 Each service gets its own ExternalArtifact with an independent revision.
-Changes to `services/auth/` only trigger reconciliation of the auth-service,
+Changes to `services/auth/` only trigger the reconciliation of the auth-service,
 leaving other services untouched.
 
 ### Example: Helm Chart Composition
@@ -122,7 +127,7 @@ spec:
       name: podinfo-values
   artifacts:
     - name: podinfo-composite
-      originRevision: "@chart" # Track chart version
+      originRevision: "@chart"
       copy:
         - from: "@chart/"
           to: "@artifact/"
@@ -179,10 +184,6 @@ Copy operations support glob patterns, exclusions and YAML merge:
   your organization's custom values and configuration overrides stored in Git.
 - **Selective Deployment** - Deploy only changed components from large repositories
   by decomposing them into dedicated artifacts.
-
-## API Reference
-
-- [ArtifactGenerator CRD](docs/spec/v1beta1/artifactgenerators.md)
 
 ## Contributing
 

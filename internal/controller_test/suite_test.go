@@ -141,5 +141,5 @@ func registerController() error {
 		DependencyRequeueInterval: 5 * time.Second,
 	}
 
-	return reconciler.SetupWithManager(testCtx, testEnv)
+	return reconciler.SetupWithManager(testCtx, testEnv, controller.ArtifactGeneratorReconcilerOptions{})
 }

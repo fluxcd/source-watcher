@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "monthly"
     groups:
       flux-deps:
         patterns:
@@ -22,7 +22,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "monthly"
     groups:
       ci:
         patterns:
@@ -30,7 +30,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "monthly"
     groups:
       docker:
         patterns:

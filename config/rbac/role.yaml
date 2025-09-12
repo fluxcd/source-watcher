@@ -13,7 +13,7 @@ rules:
   - delete
   - get
   - list
-  - patch
+  - patchStatus
   - update
   - watch
 - apiGroups:
@@ -28,5 +28,17 @@ rules:
   - artifactgenerators/status
   verbs:
   - get
-  - patch
+  - patchStatus
   - update
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - '*'
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patchStatus
+  - update
+  - watch

@@ -21,9 +21,11 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -39,9 +41,15 @@ import (
 // ArtifactGenerators by their source references.
 const sourceRefIndexKey string = ".metadata.sourceRef"
 
+type ArtifactGeneratorReconcilerOptions struct {
+	RateLimiter workqueue.TypedRateLimiter[reconcile.Request]
+}
+
 // SetupWithManager sets up the controller with the Manager and configures
 // watches for sources referenced by ArtifactGenerators.
-func (r *ArtifactGeneratorReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *ArtifactGeneratorReconciler) SetupWithManager(ctx context.Context,
+	mgr ctrl.Manager,
+	opts ArtifactGeneratorReconcilerOptions) error {
 	if err := mgr.GetCache().IndexField(ctx,
 		&swapi.ArtifactGenerator{},
 		sourceRefIndexKey,
@@ -72,6 +80,9 @@ func (r *ArtifactGeneratorReconciler) SetupWithManager(ctx context.Context, mgr 
 			handler.EnqueueRequestsFromMapFunc(r.requestsForSourceChange),
 			builder.WithPredicates(sourceChangePredicate),
 		).
+		WithOptions(controller.Options{
+			RateLimiter: opts.RateLimiter,
+		}).
 		Complete(r)
 }
 

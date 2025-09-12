@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxcd/pkg/runtime/jitter"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,9 +62,10 @@ type ArtifactGeneratorReconciler struct {
 	NoCrossNamespaceRefs      bool
 }
 
-// +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators,verbs=get;list;watch;create;update;patchStatus;delete
+// +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators/status,verbs=get;update;patchStatus
 // +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators/finalizers,verbs=update
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=*,verbs=get;list;watch;create;update;patchStatus;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -78,16 +80,15 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Initialize the runtime patcher with the current version of the object.
 	patcher := patch.NewSerialPatcher(obj, r.Client)
 
-	// Finalize the reconciliation and report the results.
+	// Update the status at the end of the reconciliation.
 	defer func() {
-		if err := r.finalizeStatus(ctx, obj, patcher); err != nil {
+		if err := r.summarizeStatus(ctx, obj, patcher); err != nil {
 			log.Error(err, "failed to update status")
 			retErr = kerrors.NewAggregate([]error{retErr, err})
 		}
 	}()
 
-	// Finalize the reconciliation and release resources
-	// if the object is being deleted.
+	// Finalize the reconciliation and release resources if the object is being deleted.
 	if !obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, obj)
 	}
@@ -105,14 +106,16 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	// Validate the ArtifactGenerator spec
+	// Validate the ArtifactGenerator spec and mark the object as Stalled if invalid.
 	if err := r.validateSpec(obj); err != nil {
 		return ctrl.Result{}, err
 	}
 
+	// Run drift detection and reconciliation.
 	return r.reconcile(ctx, obj, patcher)
 }
 
+// reconcile contains the main reconciliation logic for the ArtifactGenerator.
 func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	patcher *patch.SerialPatcher) (ctrl.Result, error) {
@@ -167,7 +170,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		meta.ProgressingReason,
 		"%s", msgInProgress)
 	log.Info(msgInProgress, "reason", reason)
-	if err := r.patch(ctx, obj, patcher); err != nil {
+	if err := r.patchStatus(ctx, obj, patcher); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
 	}
 
@@ -251,7 +254,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		"%s", msg)
 	r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
 
-	return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
+	return ctrl.Result{RequeueAfter: jitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
 }
 
 // observeSources retrieves the current state of sources,
@@ -365,8 +368,9 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 	return dirs, nil
 }
 
-// reconcileExternalArtifact ensures the ExternalArtifact object exists and is up to date
-// with the provided artifact details. It returns a reference to the ExternalArtifact.
+// reconcileExternalArtifact ensures the ExternalArtifact object
+// exists and is up to date with the provided artifact details.
+// It returns a reference to the ExternalArtifact.
 func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	outputArtifact *swapi.OutputArtifact,
@@ -429,7 +433,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		},
 	}
 	if err := r.Status().Patch(ctx, ea, client.Apply, statusOpts); err != nil {
-		return nil, fmt.Errorf("failed to patch ExternalArtifact status: %w", err)
+		return nil, fmt.Errorf("failed to patchStatus ExternalArtifact status: %w", err)
 	}
 
 	// Log if the artifact is up to date or emit an event if it is new or has changed.
@@ -451,8 +455,9 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	}, nil
 }
 
-// findOrphanedReferences identifies ExternalArtifact references in the inventory
-// that are not present in the current references, indicating they should be garbage collected.
+// findOrphanedReferences identifies ExternalArtifact references
+// in the inventory that are not present in the current references,
+// indicating they should be garbage collected.
 func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	inventory []swapi.ExternalArtifactReference,
 	currentRefs []swapi.ExternalArtifactReference) []swapi.ExternalArtifactReference {
@@ -475,8 +480,9 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 	return orphaned
 }
 
-// setArtifactRevisions sets the revision and origin revision metadata on the artifact
-// based on the output artifact configuration and available remote sources.
+// setArtifactRevisions sets the revision and origin revision
+// metadata on the artifact based on the output artifact
+// configuration and available remote sources.
 func (r *ArtifactGeneratorReconciler) setArtifactRevisions(artifact *meta.Artifact,
 	oa swapi.OutputArtifact,
 	remoteSources map[string]swapi.ObservedSource) {
