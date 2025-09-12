@@ -18,5 +18,9 @@ spec:
         - from: "@chart/**"
           to: "@artifact/"
           exclude: ["*.md"]
+        - from: "@repo/charts/podinfo/values.yaml"
+          to: "@artifact/podinfo/values.yaml"
+          strategy: Overwrite
         - from: "@repo/charts/podinfo/values-prod.yaml"
           to: "@artifact/podinfo/values.yaml"
+          strategy: Merge

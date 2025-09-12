@@ -96,11 +96,12 @@ spec:
           to: "@artifact/"
         - from: "@repo/charts/podinfo/values-prod.yaml"
           to: "@artifact/podinfo/values.yaml"
+          strategy: Merge # Or `Overwrite` to replace the values.yaml
 ```
 
 The above generator will create an ExternalArtifact named `podinfo-composite` in the `apps` namespace,
-which contains the Helm chart from the `podinfo-chart` OCI repository with the `values.yaml` overwritten
-by the `values-prod.yaml` file from the Git repository.
+which contains the Helm chart from the `podinfo-chart` OCI repository with the `values.yaml` merged with
+`values-prod.yaml` from the Git repository.
 
 The generated ExternalArtifact can be deployed using a Flux HelmRelease, for example:
 
@@ -263,6 +264,8 @@ Each copy operation specifies how to copy files from sources into the generated 
   the root of the generated artifact and `path` is the relative path to a file or directory.
 - `exclude` (optional): A list of glob patterns to filter out from the source selection.
   Any file matched by `from` that also matches an exclude pattern will be ignored.
+- `strategy` (optional): Can be `Overwrite` (default) or `Merge`. The `Merge` strategy
+  only works for YAML files and merges using the same logic as Helm for `values.yaml` files.
 
 Copy operations use `cp`-like semantics:
 
@@ -296,6 +299,21 @@ Examples of copy operations:
     - "*.md"                       # Excludes all .md files
     - "**/testdata/**"             # Excludes all files under any testdata/ dir
 ```
+
+Example of copy with `Merge` strategy:
+
+```yaml
+# Copy the chart contents (this includes chart-name/values.yaml)
+- from: "@chart/"
+  to: "@artifact/"
+# Merge values.yaml files - (like `helm --values values-prod.yaml`)
+- from: "@git/values-prod.yaml"
+  to: "@artifact/chart-name/values.yaml"
+  strategy: Merge
+```
+
+**Note** that the merge strategy will replace _arrays_ entirely,
+the behavior is the same as Helm's `values.yaml` merging.
 
 ## Working with ArtifactGenerators
 

@@ -68,6 +68,16 @@ spec:
                             maxLength: 1024
                             pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
                             type: string
+                          strategy:
+                            description: |-
+                              Strategy specifies the copy strategy to use.
+                              'Overwrite' will overwrite existing files in the destination.
+                              'Merge' is for merging YAML files using Helm values merge strategy.
+                              If not specified, defaults to 'Overwrite'.
+                            enum:
+                            - Overwrite
+                            - Merge
+                            type: string
                           to:
                             description: |-
                               To specifies the destination path within the artifact.

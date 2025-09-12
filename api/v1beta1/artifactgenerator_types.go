@@ -35,6 +35,8 @@ const (
 	AccessDeniedReason               = "AccessDenied"
 	ValidationFailedReason           = "ValidationFailed"
 	SourceFetchFailedReason          = "SourceFetchFailed"
+	OverwriteStrategy                = "Overwrite"
+	MergeStrategy                    = "Merge"
 	EnabledValue                     = "enabled"
 	DisabledValue                    = "disabled"
 )
@@ -143,6 +145,14 @@ type CopyOperation struct {
 	// +kubebuilder:validation:MaxItems=100
 	// +optional
 	Exclude []string `json:"exclude,omitempty"`
+
+	// Strategy specifies the copy strategy to use.
+	// 'Overwrite' will overwrite existing files in the destination.
+	// 'Merge' is for merging YAML files using Helm values merge strategy.
+	// If not specified, defaults to 'Overwrite'.
+	// +optional
+	// +kubebuilder:validation:Enum=Overwrite;Merge
+	Strategy string `json:"strategy,omitempty"`
 }
 
 // ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.

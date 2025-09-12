@@ -25,12 +25,12 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"golang.org/x/mod/sumdb/dirhash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/artifact/storage"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -175,7 +175,7 @@ func applyCopyOperation(ctx context.Context,
 
 	if !isGlobPattern {
 		// Direct path reference - check what it actually is first (cp-like behavior)
-		return applySingleSourceCopy(ctx, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash, op.Exclude)
+		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash)
 	}
 
 	// Glob pattern - find all matches and copy each
@@ -208,7 +208,7 @@ func applyCopyOperation(ctx context.Context,
 
 		// Calculate destination path based on glob pattern type
 		destFile := calculateGlobDestination(srcPattern, match, destRelPath)
-		if err := copyFileWithRoots(ctx, srcRoot, match, stagingRoot, destFile, op.Exclude); err != nil {
+		if err := copyFileWithRoots(ctx, op, srcRoot, match, stagingRoot, destFile); err != nil {
 			return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
 		}
 	}
@@ -219,12 +219,12 @@ func applyCopyOperation(ctx context.Context,
 // applySingleSourceCopy handles copying a single, non-glob source (file or directory)
 // using cp-like semantics based on the source type and destination format.
 func applySingleSourceCopy(ctx context.Context,
+	op swapi.CopyOperation,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
 	destPath string,
-	destEndsWithSlash bool,
-	excludePatterns []string) error {
+	destEndsWithSlash bool) error {
 	// Clean the source path to handle trailing slashes
 	srcPath = filepath.Clean(srcPath)
 
@@ -238,9 +238,9 @@ func applySingleSourceCopy(ctx context.Context,
 	}
 
 	if srcInfo.IsDir() {
-		return applySingleDirectoryCopy(ctx, srcRoot, srcPath, stagingRoot, destPath, excludePatterns)
+		return applySingleDirectoryCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath)
 	} else {
-		return applySingleFileCopy(ctx, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash, excludePatterns)
+		return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash)
 	}
 }
 
@@ -248,14 +248,14 @@ func applySingleSourceCopy(ctx context.Context,
 // - file -> dest (no slash) = copy to dest as filename or dest/filename if dest is an existing directory
 // - file -> dest/ (with slash) = copy to dest/filename
 func applySingleFileCopy(ctx context.Context,
+	op swapi.CopyOperation,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
 	destPath string,
-	destEndsWithSlash bool,
-	excludePatterns []string) error {
+	destEndsWithSlash bool) error {
 	// Check if the file should be excluded
-	if shouldExclude(srcPath, excludePatterns) {
+	if shouldExclude(srcPath, op.Exclude) {
 		return nil // Skip excluded file
 	}
 	var finalDestPath string
@@ -275,22 +275,22 @@ func applySingleFileCopy(ctx context.Context,
 		}
 	}
 
-	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath, excludePatterns)
+	return copyFileWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, finalDestPath)
 }
 
 // applySingleDirectoryCopy handles copying a single directory using cp-like semantics.
 // Copies the source directory as a subdirectory within the destination path.
 // Example: cp -r configs dest -> creates dest/configs/
 func applySingleDirectoryCopy(ctx context.Context,
+	op swapi.CopyOperation,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	destPath string,
-	excludePatterns []string) error {
+	destPath string) error {
 	srcDirName := filepath.Base(srcPath)
 	finalDestPath := filepath.Join(destPath, srcDirName)
 
-	return copyFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, finalDestPath, excludePatterns)
+	return copyFileWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, finalDestPath)
 }
 
 // containsGlobChars returns true if the path contains glob metacharacters
@@ -347,18 +347,22 @@ func parseCopyDestinationRelative(to string) (string, error) {
 // copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root,
 // excluding files matching exclude patterns.
 func copyFileWithRoots(ctx context.Context,
+	op swapi.CopyOperation,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	destPath string,
-	excludePatterns []string) error {
+	destPath string) error {
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath, excludePatterns)
+		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath, op.Exclude)
+	}
+
+	if shouldMergeFile(op, stagingRoot, destPath) {
+		return mergeFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
 	}
 
 	return copyRegularFileWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath)
@@ -409,6 +413,51 @@ func copyRegularFileWithRoots(ctx context.Context,
 	}
 
 	return destFile.Chmod(srcInfo.Mode())
+}
+
+// shouldMergeFile determines if a file should be merged based
+// on the copy operation strategy and if the destination file exists.
+func shouldMergeFile(op swapi.CopyOperation, stagingRoot *os.Root, destPath string) bool {
+	if op.Strategy != swapi.MergeStrategy {
+		return false
+	}
+	if _, err := stagingRoot.Stat(destPath); err != nil {
+		return false
+	}
+	return true
+}
+
+// mergeFileWithRoots merges the YAML content of srcPath into destPath using os.Root.
+// It returns an error if the files cannot be read, parsed as YAML, merged, or written.
+func mergeFileWithRoots(ctx context.Context,
+	srcRoot *os.Root,
+	srcPath string,
+	stagingRoot *os.Root,
+	destPath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Read source file and parse as YAML
+	srcData, err := loadYAML(srcRoot, srcPath)
+	if err != nil {
+		return err
+	}
+
+	// Read destination file and parse as YAML
+	destData, err := loadYAML(stagingRoot, destPath)
+	if err != nil {
+		return err
+	}
+
+	// Merge and marshal the data into YAML
+	mergedYAML, err := mergeYAML(destData, srcData)
+	if err != nil {
+		return fmt.Errorf("failed to merged YAML: %w", err)
+	}
+
+	// Overwriting the destination file
+	return stagingRoot.WriteFile(destPath, mergedYAML, 0644)
 }
 
 // copyDirWithRoots copies a directory recursively using os.Root,

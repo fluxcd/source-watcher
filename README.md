@@ -30,7 +30,7 @@ apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator
 metadata:
   name: my-app
-  namespace: flux-system
+  namespace: apps
 spec:
   sources:
     - alias: backend
@@ -56,9 +56,9 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: my-app
-  namespace: flux-system
+  namespace: apps
 spec:
-  interval: 10m
+  interval: 15m
   sourceRef:
     kind: ExternalArtifact
     name: my-app-composite
@@ -75,14 +75,14 @@ apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator
 metadata:
   name: platform-services
-  namespace: flux-system
+  namespace: platform
 spec:
   sources:
     - alias: monorepo
       kind: GitRepository
       name: platform-monorepo
   artifacts:
-    - name: policy-config
+    - name: policies
       copy:
         - from: "@monorepo/platform/policy/**"
           to: "@artifact/"
@@ -90,11 +90,12 @@ spec:
       copy:
         - from: "@monorepo/services/auth/deploy/**"
           to: "@artifact/"
+          exclude: ["*.md"]
     - name: api-gateway
       copy:
         - from: "@monorepo/services/gateway/deploy/**"
           to: "@artifact/"
-          exclude: ["**/charts/**"]
+          exclude: ["*.md", "**/charts/**"]
 ```
 
 Each service gets its own ExternalArtifact with an independent revision.
@@ -116,43 +117,56 @@ spec:
     - alias: chart
       kind: OCIRepository
       name: podinfo-chart
-      namespace: apps
     - alias: repo
       kind: GitRepository
       name: podinfo-values
-      namespace: apps
   artifacts:
     - name: podinfo-composite
       originRevision: "@chart" # Track chart version
       copy:
         - from: "@chart/"
           to: "@artifact/"
+        - from: "@repo/charts/podinfo/values.yaml"
+          to: "@artifact/podinfo/values.yaml"
+          strategy: Overwrite
         - from: "@repo/charts/podinfo/values-prod.yaml"
-          to: "@artifact/podinfo/values.yaml" # Override default values
+          to: "@artifact/podinfo/values.yaml"
+          strategy: Merge
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: podinfo
+  namespace: apps
+spec:
+  interval: 15m
+  releaseName: podinfo
+  chartRef:
+    kind: ExternalArtifact
+    name: podinfo-composite
 ```
 
 ## Key Features
 
 ### Content-based Revision Tracking
 
-The generated artifacts are versioned as `latest@sha256:<hash>` where the hash
-is computed from the artifact's content. This means:
+The generated artifacts are versioned based on the hash computed from the artifact's content.
+This means:
 
 - ✅ Identical content = same revision (no unnecessary reconciliations)
-- ✅ Any change = new revision (guaranteed updates)
+- ✅ Any change to included content = new revision (guaranteed updates)
 - ✅ Automatic change detection across all source types
-
-The controller attaches the origin source revision (e.g. Git commit SHA)
-to the generated artifact metadata for traceability and Flux commit status updates.
 
 ### Flexible Copy Operations
 
-Copy operations support glob patterns and exclusions:
+Copy operations support glob patterns, exclusions and YAML merge:
 
 - `@source/file.yaml` → `@artifact/dest/` - Copy file into directory
 - `@source/dir/` → `@artifact/dest/` - Copy directory as subdirectory
 - `@source/dir/**` → `@artifact/dest/` - Copy directory contents
 - `@source/file.yaml` → `@artifact/existing.yaml` - Later copy overwrites earlier ones
+- `exclude: ["*.md"]` - Exclude matching files from copy
+- `strategy: Merge` - Deep merge YAML files instead of overwriting
 
 ## Use Cases
 
@@ -164,7 +178,7 @@ Copy operations support glob patterns and exclusions:
 - **Vendor Chart Customization** - Combine upstream Helm charts from OCI registries with
   your organization's custom values and configuration overrides stored in Git.
 - **Selective Deployment** - Deploy only changed components from large repositories
-  by decomposing them into focused artifacts.
+  by decomposing them into dedicated artifacts.
 
 ## API Reference
 
@@ -173,4 +187,4 @@ Copy operations support glob patterns and exclusions:
 ## Contributing
 
 This project is Apache 2.0 licensed and accepts contributions via GitHub pull requests.
-To start contributing please see the [development guide](CONTRIBUTING.md).
+To start contributing please see the [contrib guide](CONTRIBUTING.md).
