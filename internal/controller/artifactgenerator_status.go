@@ -29,7 +29,7 @@ import (
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 	gotkpatch "github.com/fluxcd/pkg/runtime/patch"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 const (

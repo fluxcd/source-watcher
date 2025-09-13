@@ -1,6 +1,8 @@
-module github.com/fluxcd/source-watcher
+module github.com/fluxcd/source-watcher/v2
 
 go 1.25.0
+
+replace github.com/fluxcd/source-watcher/api/v2 => ./api
 
 // Replace digest lib to master to gather access to BLAKE3.
 // xref: https://github.com/opencontainers/go-digest/pull/66
@@ -11,14 +13,15 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.21.0
 	github.com/fluxcd/pkg/artifact v0.3.0
 	github.com/fluxcd/pkg/http/fetch v0.19.0
-	github.com/fluxcd/pkg/runtime v0.84.0
+	github.com/fluxcd/pkg/runtime v0.85.0
 	github.com/fluxcd/pkg/tar v0.14.0
 	github.com/fluxcd/pkg/testserver v0.13.0
 	github.com/fluxcd/source-controller/api v1.7.0-rc.3
+	github.com/fluxcd/source-watcher/api/v2 v2.0.0
 	github.com/onsi/gomega v1.38.2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/pflag v1.0.10
-	golang.org/x/mod v0.26.0
+	golang.org/x/mod v0.28.0
 	k8s.io/api v0.34.0
 	k8s.io/apimachinery v0.34.0
 	k8s.io/client-go v0.34.0
@@ -108,12 +111,12 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.43.0 // indirect
+	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/term v0.34.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/term v0.35.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect

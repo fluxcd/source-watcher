@@ -27,7 +27,7 @@ import (
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 func TestBuild(t *testing.T) {
