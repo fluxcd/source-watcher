@@ -136,10 +136,12 @@ spec:
       name: my-monorepo
   artifacts:
     - name: frontend
+      originRevision: "@repo"
       copy:
         - from: "@repo/deploy/frontend/**"
           to: "@artifact/"
     - name: backend
+      originRevision: "@repo"
       copy:
         - from: "@repo/deploy/backend/**"
           to: "@artifact/"
@@ -236,7 +238,9 @@ Each artifact must specify:
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
 - `originRevision` (optional): A specific source origin revision to include in the artifact metadata
-  in the format `@alias`. This is useful for sources of type `OCIRepository` to track the origin Git commit.
+  in the format `@alias`. This is useful for the decomposition use case, where you want to track
+  the original source revision of the artifact (e.g. the monorepo commit SHA) without affecting
+  the artifact revision itself.
 
 ```yaml
 spec:

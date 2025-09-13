@@ -28,7 +28,7 @@ import (
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 func TestResourceSetReconciler_specValidation(t *testing.T) {

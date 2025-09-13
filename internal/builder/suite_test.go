@@ -30,7 +30,7 @@ import (
 	gotktar "github.com/fluxcd/pkg/tar"
 	gotktestsrv "github.com/fluxcd/pkg/testserver"
 
-	"github.com/fluxcd/source-watcher/internal/builder"
+	"github.com/fluxcd/source-watcher/v2/internal/builder"
 )
 
 var (

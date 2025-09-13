@@ -36,8 +36,8 @@ import (
 	gotktestsrv "github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
-	"github.com/fluxcd/source-watcher/internal/controller"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
+	"github.com/fluxcd/source-watcher/v2/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
