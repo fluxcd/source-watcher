@@ -35,7 +35,7 @@ import (
 	gotktestsrv "github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 func TestArtifactGenerator_Watch(t *testing.T) {

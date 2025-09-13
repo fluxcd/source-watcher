@@ -24,7 +24,7 @@ which allows Flux users to:
 
 - Flux v2.7.0 or later
 - source-watcher v2.0.0 or later
-- kustomize-controller & helm-controller with `--feature-gates=ExternalArtifacts`
+- kustomize-controller & helm-controller with `--feature-gates=ExternalArtifact`
 
 ### Example: Composing Multiple Sources
 

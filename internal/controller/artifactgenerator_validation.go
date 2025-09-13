@@ -19,7 +19,7 @@ package controller
 import (
 	"strings"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 // validateSpec validates the ArtifactGenerator spec for uniqueness and multi-tenancy constraints.
