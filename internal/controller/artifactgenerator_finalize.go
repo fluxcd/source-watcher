@@ -26,9 +26,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/runtime/conditions"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -58,8 +58,8 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Cont
 
 	for _, eaRef := range refs {
 		// Delete from storage.
-		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
-		rmDir, err := r.Storage.RemoveAll(meta.Artifact{Path: storagePath})
+		storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
+		rmDir, err := r.Storage.RemoveAll(gotkmeta.Artifact{Path: storagePath})
 		if err != nil {
 			log.Error(err, "Failed to delete artifact from storage", "path", storagePath)
 		} else if rmDir != "" {
@@ -87,17 +87,17 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Cont
 func (r *ArtifactGeneratorReconciler) addFinalizer(obj *swapi.ArtifactGenerator) (ctrl.Result, error) {
 	controllerutil.AddFinalizer(obj, swapi.Finalizer)
 	if obj.IsDisabled() {
-		conditions.MarkTrue(obj,
-			meta.ReadyCondition,
+		gotkconditions.MarkTrue(obj,
+			gotkmeta.ReadyCondition,
 			swapi.ReconciliationDisabledReason,
 			"%s", msgInitSuspended)
 	} else {
-		conditions.MarkUnknown(obj,
-			meta.ReadyCondition,
-			meta.ProgressingReason,
+		gotkconditions.MarkUnknown(obj,
+			gotkmeta.ReadyCondition,
+			gotkmeta.ProgressingReason,
 			"%s", msgInProgress)
-		conditions.MarkReconciling(obj,
-			meta.ProgressingReason,
+		gotkconditions.MarkReconciling(obj,
+			gotkmeta.ProgressingReason,
 			"%s", msgInProgress)
 	}
 

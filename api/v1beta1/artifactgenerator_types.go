@@ -22,7 +22,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/fluxcd/pkg/apis/meta"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 )
 
 const (
@@ -157,7 +157,7 @@ type CopyOperation struct {
 
 // ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.
 type ArtifactGeneratorStatus struct {
-	meta.ReconcileRequestStatus `json:",inline"`
+	gotkmeta.ReconcileRequestStatus `json:",inline"`
 
 	// Conditions holds the conditions for the ArtifactGenerator.
 	// +optional

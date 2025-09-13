@@ -34,9 +34,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	"github.com/fluxcd/pkg/testserver"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotktestsrv "github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -62,7 +62,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// Create the GitRepository source
-	gitFiles := []testserver.File{
+	gitFiles := []gotktestsrv.File{
 		{Name: "app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: test-app"},
 		{Name: "service.yaml", Body: "apiVersion: v1\nkind: Service\nmetadata:\n  name: test-service"},
 	}
@@ -71,7 +71,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 
 	// Create the OCIRepository source
 	ociRevision := digest.FromString("test").String()
-	ociFiles := []testserver.File{
+	ociFiles := []gotktestsrv.File{
 		{Name: "config.json", Body: "{\"version\": \"1.0\", \"env\": \"production\"}"},
 		{Name: "manifest.yaml", Body: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test-config"},
 	}
@@ -95,8 +95,8 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	// Verify the ArtifactGenerator status
 	err = testClient.Get(ctx, objKey, obj)
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(conditions.IsReady(obj)).To(BeTrue())
-	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(meta.SucceededReason))
+	g.Expect(gotkconditions.IsReady(obj)).To(BeTrue())
+	g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(gotkmeta.SucceededReason))
 
 	// Verify that ObservedSourcesDigest is set
 	g.Expect(obj.Status.ObservedSourcesDigest).ToNot(BeEmpty())
@@ -135,7 +135,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 		// Verify the status
 		g.Expect(externalArtifact.Status.Artifact).ToNot(BeNil())
 		g.Expect(externalArtifact.Status.Artifact.URL).To(ContainSubstring(testServer.URL()))
-		g.Expect(conditions.IsReady(externalArtifact)).To(BeTrue())
+		g.Expect(gotkconditions.IsReady(externalArtifact)).To(BeTrue())
 
 		if inv.Name == fmt.Sprintf("%s-git", obj.Name) {
 			gitArtifactDigest = externalArtifact.Status.Artifact.Digest
@@ -252,7 +252,7 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(events).ToNot(BeEmpty())
 	for _, e := range events {
 		g.Expect(e.Type).To(Equal(corev1.EventTypeNormal))
-		g.Expect(e.Reason).To(Equal(meta.ReadyCondition))
+		g.Expect(e.Reason).To(Equal(gotkmeta.ReadyCondition))
 	}
 
 	// Delete the object to trigger finalization
@@ -303,11 +303,11 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				ociKey := client.ObjectKey{Name: "test-oci", Namespace: "default"}
 				objKey := client.ObjectKey{Name: "test-generator", Namespace: "default"}
 
-				gitFiles := []testserver.File{
+				gitFiles := []gotktestsrv.File{
 					{Name: "file1.yaml", Body: "content1"},
 					{Name: "file2.yaml", Body: "content2"},
 				}
-				ociFiles := []testserver.File{
+				ociFiles := []gotktestsrv.File{
 					{Name: "file3.yaml", Body: "content3"},
 					{Name: "file4.yaml", Body: "content4"},
 				}
@@ -400,7 +400,7 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				gitKey := client.ObjectKey{Name: "single-git", Namespace: "default"}
 				objKey := client.ObjectKey{Name: "single-generator", Namespace: "default"}
 
-				gitFiles := []testserver.File{
+				gitFiles := []gotktestsrv.File{
 					{Name: "config.yaml", Body: "apiVersion: v1\nkind: ConfigMap"},
 				}
 
@@ -445,7 +445,7 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				gitKey := client.ObjectKey{Name: "explicit-ns-git", Namespace: "default"}
 				objKey := client.ObjectKey{Name: "explicit-ns-generator", Namespace: "default"}
 
-				gitFiles := []testserver.File{
+				gitFiles := []gotktestsrv.File{
 					{Name: "explicit-ns.yaml", Body: "explicit namespace content"},
 				}
 
@@ -591,7 +591,7 @@ func getArtifactGenerator(objectKey client.ObjectKey) *swapi.ArtifactGenerator {
 	}
 }
 
-func applyGitRepository(objKey client.ObjectKey, revision string, files []testserver.File) error {
+func applyGitRepository(objKey client.ObjectKey, revision string, files []gotktestsrv.File) error {
 	artifactName, err := testServer.ArtifactFromFiles(files)
 	if err != nil {
 		return err
@@ -620,13 +620,13 @@ func applyGitRepository(objKey client.ObjectKey, revision string, files []testse
 	status := sourcev1.GitRepositoryStatus{
 		Conditions: []metav1.Condition{
 			{
-				Type:               meta.ReadyCondition,
+				Type:               gotkmeta.ReadyCondition,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
 				Reason:             sourcev1.GitOperationSucceedReason,
 			},
 		},
-		Artifact: &meta.Artifact{
+		Artifact: &gotkmeta.Artifact{
 			Path:           url,
 			URL:            url,
 			Revision:       revision,
@@ -656,7 +656,7 @@ func applyGitRepository(objKey client.ObjectKey, revision string, files []testse
 	return testClient.Status().Patch(context.Background(), repo, client.Apply, statusOpts)
 }
 
-func applyOCIRepository(objKey client.ObjectKey, revision string, files []testserver.File) error {
+func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotktestsrv.File) error {
 	artifactName, err := testServer.ArtifactFromFiles(files)
 	if err != nil {
 		return err
@@ -684,13 +684,13 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []testse
 	status := sourcev1.OCIRepositoryStatus{
 		Conditions: []metav1.Condition{
 			{
-				Type:               meta.ReadyCondition,
+				Type:               gotkmeta.ReadyCondition,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
-				Reason:             meta.SucceededReason,
+				Reason:             gotkmeta.SucceededReason,
 			},
 		},
-		Artifact: &meta.Artifact{
+		Artifact: &gotkmeta.Artifact{
 			Path:           url,
 			URL:            url,
 			Revision:       revision,

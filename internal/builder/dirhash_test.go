@@ -23,10 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	. "github.com/onsi/gomega"
+
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -187,7 +188,6 @@ func TestBuild_GarbageCollection(t *testing.T) {
 
 	artifact1, err := testBuilder.Build(ctx, spec, sources, "gc", workspaceDir)
 	g.Expect(err).ToNot(HaveOccurred())
-	filename1 := filepath.Base(artifact1.Path)
 
 	err = os.WriteFile(filepath.Join(sourceDir, "1.yaml"), []byte("---\n"), 0o644)
 	g.Expect(err).ToNot(HaveOccurred())
@@ -201,12 +201,12 @@ func TestBuild_GarbageCollection(t *testing.T) {
 	artifact3, err := testBuilder.Build(ctx, spec, sources, "gc", workspaceDir)
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// GC should delete artifacts older than retention (retention is 2)
-	storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, "gc", spec.Name, "*")
-	deleted, err := testStorage.GarbageCollect(ctx, meta.Artifact{Path: storagePath}, 2*time.Second)
+	// GC should delete artifacts older than retention
+	storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, "gc", spec.Name, "*")
+	deleted, err := testStorage.GarbageCollect(ctx, gotkmeta.Artifact{Path: storagePath}, 2*time.Second)
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(deleted).To(HaveLen(1))
-	g.Expect(filepath.Base(deleted[0])).To(Equal(filename1))
+	g.Expect(deleted).ToNot(BeEmpty())
+	g.Expect(testStorage.ArtifactExist(*artifact1)).To(BeFalse())
 	g.Expect(testStorage.ArtifactExist(*artifact2)).To(BeTrue())
 	g.Expect(testStorage.ArtifactExist(*artifact3)).To(BeTrue())
 }

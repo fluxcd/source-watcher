@@ -24,15 +24,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	"github.com/fluxcd/pkg/testserver"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/go-digest"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotktestsrv "github.com/fluxcd/pkg/testserver"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -52,7 +53,7 @@ func TestArtifactGenerator_Watch(t *testing.T) {
 		Name:      "e2e",
 	}
 
-	ociFiles := []testserver.File{
+	ociFiles := []gotktestsrv.File{
 		{Name: "cm.yaml", Body: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test"},
 		{Name: "sa.yaml", Body: "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: test"},
 	}
@@ -107,10 +108,10 @@ func TestArtifactGenerator_Watch(t *testing.T) {
 		gt := NewWithT(t)
 		gt.Eventually(func() bool {
 			_ = testClient.Get(ctx, client.ObjectKeyFromObject(obj), resultAG)
-			return conditions.IsTrue(resultAG, meta.ReadyCondition)
+			return gotkconditions.IsTrue(resultAG, gotkmeta.ReadyCondition)
 		}, timeout, time.Second).Should(BeTrue(), "controller did not reconcile new artifacts")
 
-		gt.Expect(conditions.GetReason(resultAG, meta.ReadyCondition)).Should(BeIdenticalTo(meta.SucceededReason))
+		gt.Expect(gotkconditions.GetReason(resultAG, gotkmeta.ReadyCondition)).Should(BeIdenticalTo(gotkmeta.SucceededReason))
 
 		gt.Expect(resultAG.Status.Inventory).To(HaveLen(2))
 		for _, inv := range resultAG.Status.Inventory {
@@ -149,7 +150,7 @@ func TestArtifactGenerator_Watch(t *testing.T) {
 		if obj.Annotations == nil {
 			obj.Annotations = map[string]string{}
 		}
-		obj.Annotations[meta.ReconcileRequestAnnotation] = ts
+		obj.Annotations[gotkmeta.ReconcileRequestAnnotation] = ts
 		err = testClient.Patch(ctx, obj, patch)
 		gt.Expect(err).ToNot(HaveOccurred())
 
@@ -175,7 +176,7 @@ func TestArtifactGenerator_Watch(t *testing.T) {
 	})
 }
 
-func applyOCIRepository(objKey client.ObjectKey, revision string, files []testserver.File) error {
+func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotktestsrv.File) error {
 	artifactName, err := testServer.ArtifactFromFiles(files)
 	if err != nil {
 		return err
@@ -203,13 +204,13 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []testse
 	status := sourcev1.OCIRepositoryStatus{
 		Conditions: []metav1.Condition{
 			{
-				Type:               meta.ReadyCondition,
+				Type:               gotkmeta.ReadyCondition,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
-				Reason:             meta.SucceededReason,
+				Reason:             gotkmeta.SucceededReason,
 			},
 		},
-		Artifact: &meta.Artifact{
+		Artifact: &gotkmeta.Artifact{
 			Path:           url,
 			URL:            url,
 			Revision:       revision,

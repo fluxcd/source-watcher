@@ -24,7 +24,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	"github.com/fluxcd/pkg/apis/meta"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -33,7 +33,7 @@ func TestBuild_YAMLMergeStrategy(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupFunc     func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
-		validateFunc  func(t *testing.T, artifact *meta.Artifact, workspaceDir string)
+		validateFunc  func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string)
 		expectedError string
 	}{
 		{
@@ -88,7 +88,7 @@ env: production # This should add a new top-level field
 				}
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspaceDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
 				g.Expect(artifact).ToNot(BeNil())
 
@@ -150,7 +150,7 @@ env: production
 				}
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspaceDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
 				g.Expect(artifact).ToNot(BeNil())
 
@@ -192,7 +192,7 @@ c:
 				sources := map[string]string{"source": sourceDir}
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, workspaceDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
 				g.Expect(artifact).ToNot(BeNil())
 

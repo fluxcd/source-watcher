@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxcd/pkg/runtime/jitter"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,12 +35,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/http/fetch"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	"github.com/fluxcd/pkg/runtime/patch"
-	"github.com/fluxcd/pkg/tar"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkstroage "github.com/fluxcd/pkg/artifact/storage"
+	gotkfetch "github.com/fluxcd/pkg/http/fetch"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotkjitter "github.com/fluxcd/pkg/runtime/jitter"
+	gotkpatch "github.com/fluxcd/pkg/runtime/patch"
+	gotktar "github.com/fluxcd/pkg/tar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -55,7 +55,7 @@ type ArtifactGeneratorReconciler struct {
 
 	ControllerName            string
 	Scheme                    *runtime.Scheme
-	Storage                   *storage.Storage
+	Storage                   *gotkstroage.Storage
 	APIReader                 client.Reader
 	ArtifactFetchRetries      int
 	DependencyRequeueInterval time.Duration
@@ -78,7 +78,7 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Initialize the runtime patcher with the current version of the object.
-	patcher := patch.NewSerialPatcher(obj, r.Client)
+	patcher := gotkpatch.NewSerialPatcher(obj, r.Client)
 
 	// Update the status at the end of the reconciliation.
 	defer func() {
@@ -118,7 +118,7 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 // reconcile contains the main reconciliation logic for the ArtifactGenerator.
 func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	patcher *patch.SerialPatcher) (ctrl.Result, error) {
+	patcher *gotkpatch.SerialPatcher) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Create a temporary directory to fetch sources and build artifacts.
@@ -138,8 +138,8 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	remoteSources, err := r.observeSources(ctx, obj)
 	if err != nil {
 		msg := fmt.Sprintf("get sources failed: %s", err.Error())
-		conditions.MarkFalse(obj,
-			meta.ReadyCondition,
+		gotkconditions.MarkFalse(obj,
+			gotkmeta.ReadyCondition,
 			swapi.SourceFetchFailedReason,
 			"%s", msg)
 		r.Event(obj, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, msg)
@@ -157,17 +157,17 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	if !hasDrifted {
 		msg := fmt.Sprintf("No drift detected, %d artifact(s) up to date", len(obj.Status.Inventory))
 		log.Info(msg)
-		r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
+		r.Event(obj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
 		return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
 	}
 
 	// Mark the object as reconciling and remove any previous error conditions.
-	conditions.MarkReconciling(obj,
-		meta.ProgressingReason,
+	gotkconditions.MarkReconciling(obj,
+		gotkmeta.ProgressingReason,
 		"%s", msgInProgress)
-	conditions.MarkUnknown(obj,
-		meta.ReadyCondition,
-		meta.ProgressingReason,
+	gotkconditions.MarkUnknown(obj,
+		gotkmeta.ReadyCondition,
+		gotkmeta.ProgressingReason,
 		"%s", msgInProgress)
 	log.Info(msgInProgress, "reason", reason)
 	if err := r.patchStatus(ctx, obj, patcher); err != nil {
@@ -180,8 +180,8 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	localSources, err := r.fetchSources(ctx, remoteSources, tmpDir)
 	if err != nil {
 		msg := fmt.Sprintf("fetch sources failed: %s", err.Error())
-		conditions.MarkFalse(obj,
-			meta.ReadyCondition,
+		gotkconditions.MarkFalse(obj,
+			gotkmeta.ReadyCondition,
 			swapi.SourceFetchFailedReason,
 			"%s", msg)
 		r.Event(obj, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, msg)
@@ -201,11 +201,11 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		artifact, err := artifactBuilder.Build(ctx, &oa, localSources, obj.Namespace, tmpDir)
 		if err != nil {
 			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
-			conditions.MarkFalse(obj,
-				meta.ReadyCondition,
-				meta.BuildFailedReason,
+			gotkconditions.MarkFalse(obj,
+				gotkmeta.ReadyCondition,
+				gotkmeta.BuildFailedReason,
 				"%s", msg)
-			r.Event(obj, corev1.EventTypeWarning, meta.BuildFailedReason, msg)
+			r.Event(obj, corev1.EventTypeWarning, gotkmeta.BuildFailedReason, msg)
 			return ctrl.Result{}, err
 		}
 
@@ -218,25 +218,25 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		eaRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact)
 		if err != nil {
 			msg := fmt.Sprintf("%s reconcile failed: %s", oa.Name, err.Error())
-			conditions.MarkFalse(obj,
-				meta.ReadyCondition,
-				meta.ReconciliationFailedReason,
+			gotkconditions.MarkFalse(obj,
+				gotkmeta.ReadyCondition,
+				gotkmeta.ReconciliationFailedReason,
 				"%s", msg)
-			r.Event(obj, corev1.EventTypeWarning, meta.ReconciliationFailedReason, msg)
+			r.Event(obj, corev1.EventTypeWarning, gotkmeta.ReconciliationFailedReason, msg)
 			return ctrl.Result{}, err
 		}
 		eaRefs = append(eaRefs, *eaRef)
 	}
 
-	// Garbage collect orphaned ExternalArtifacts and their associated artifacts in storage.
+	// Garbage collect orphaned ExternalArtifacts and their associated artifacts in gotkstroage.
 	if orphans := r.findOrphanedReferences(obj.Status.Inventory, eaRefs); len(orphans) > 0 {
 		r.finalizeExternalArtifacts(ctx, orphans)
 	}
 
 	// Garbage collect old artifacts in storage according to the retention policy.
 	for _, eaRef := range eaRefs {
-		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
-		delFiles, err := r.Storage.GarbageCollect(ctx, meta.Artifact{Path: storagePath}, 5*time.Minute)
+		storagePath := gotkstroage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
+		delFiles, err := r.Storage.GarbageCollect(ctx, gotkmeta.Artifact{Path: storagePath}, 5*time.Minute)
 		if err != nil {
 			log.Error(err, "failed to garbage collect artifacts", "path", storagePath)
 		} else if len(delFiles) > 0 {
@@ -248,13 +248,13 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	obj.Status.Inventory = eaRefs
 	obj.Status.ObservedSourcesDigest = observedSourcesDigest
 	msg := fmt.Sprintf("reconciliation succeeded, generated %d artifact(s)", len(eaRefs))
-	conditions.MarkTrue(obj,
-		meta.ReadyCondition,
-		meta.SucceededReason,
+	gotkconditions.MarkTrue(obj,
+		gotkmeta.ReadyCondition,
+		gotkmeta.SucceededReason,
 		"%s", msg)
-	r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
+	r.Event(obj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
 
-	return ctrl.Result{RequeueAfter: jitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
+	return ctrl.Result{RequeueAfter: gotkjitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
 }
 
 // observeSources retrieves the current state of sources,
@@ -352,12 +352,12 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 		}
 
 		// Download artifact and extract files to the source alias dir.
-		fetcher := fetch.New(
-			fetch.WithLogger(ctrl.LoggerFrom(ctx)),
-			fetch.WithRetries(r.ArtifactFetchRetries),
-			fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
-			fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
-			fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
+		fetcher := gotkfetch.New(
+			gotkfetch.WithLogger(ctrl.LoggerFrom(ctx)),
+			gotkfetch.WithRetries(r.ArtifactFetchRetries),
+			gotkfetch.WithMaxDownloadSize(gotktar.UnlimitedUntarSize),
+			gotkfetch.WithUntar(gotktar.WithMaxUntarSize(gotktar.UnlimitedUntarSize)),
+			gotkfetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
 		)
 		if err := fetcher.FetchWithContext(ctx, src.URL, src.Digest, srcDir); err != nil {
 			return nil, err
@@ -374,7 +374,7 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	outputArtifact *swapi.OutputArtifact,
-	artifact *meta.Artifact) (*swapi.ExternalArtifactReference, error) {
+	artifact *gotkmeta.Artifact) (*swapi.ExternalArtifactReference, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Prepare labels for the ExternalArtifact with the managed-by and generator labels.
@@ -394,7 +394,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 			Labels:    labels,
 		},
 		Spec: sourcev1.ExternalArtifactSpec{
-			SourceRef: &meta.NamespacedObjectKindReference{
+			SourceRef: &gotkmeta.NamespacedObjectKindReference{
 				APIVersion: swapi.GroupVersion.String(),
 				Kind:       swapi.ArtifactGeneratorKind,
 				Name:       obj.Name,
@@ -419,10 +419,10 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		Conditions: []metav1.Condition{
 			{
 				ObservedGeneration: ea.GetGeneration(),
-				Type:               meta.ReadyCondition,
+				Type:               gotkmeta.ReadyCondition,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
-				Reason:             meta.SucceededReason,
+				Reason:             gotkmeta.SucceededReason,
 				Message:            "Artifact is ready",
 			},
 		},
@@ -444,7 +444,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		msg := fmt.Sprintf("%s/%s/%s reconciled with revision %s",
 			ea.Kind, ea.Namespace, ea.Name, artifact.Revision)
 		log.Info(msg)
-		r.Event(obj, corev1.EventTypeNormal, meta.ReadyCondition, msg)
+		r.Event(obj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
 	}
 
 	return &swapi.ExternalArtifactReference{
@@ -483,7 +483,7 @@ func (r *ArtifactGeneratorReconciler) findOrphanedReferences(
 // setArtifactRevisions sets the revision and origin revision
 // metadata on the artifact based on the output artifact
 // configuration and available remote sources.
-func (r *ArtifactGeneratorReconciler) setArtifactRevisions(artifact *meta.Artifact,
+func (r *ArtifactGeneratorReconciler) setArtifactRevisions(artifact *gotkmeta.Artifact,
 	oa swapi.OutputArtifact,
 	remoteSources map[string]swapi.ObservedSource) {
 	// Override the revision with the one from the source if specified.

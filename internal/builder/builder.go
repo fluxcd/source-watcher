@@ -28,8 +28,8 @@ import (
 	"golang.org/x/mod/sumdb/dirhash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -38,11 +38,11 @@ import (
 // ArtifactBuilder is responsible for building and storing artifacts
 // based on a given specification and source files.
 type ArtifactBuilder struct {
-	Storage *storage.Storage
+	Storage *gotkstorage.Storage
 }
 
 // New creates a new ArtifactBuilder with the given storage backend.
-func New(storage *storage.Storage) *ArtifactBuilder {
+func New(storage *gotkstorage.Storage) *ArtifactBuilder {
 	return &ArtifactBuilder{
 		Storage: storage,
 	}
@@ -58,7 +58,7 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 	spec *swapi.OutputArtifact,
 	sources map[string]string,
 	namespace string,
-	workspace string) (*meta.Artifact, error) {
+	workspace string) (*gotkmeta.Artifact, error) {
 	// Create a dir to stage the artifact files.
 	stagingDir := filepath.Join(workspace, spec.Name)
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
@@ -100,7 +100,7 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 	defer unlock()
 
 	// Create the artifact tarball from the staging dir.
-	if err := r.Storage.Archive(&artifact, stagingDir, storage.SourceIgnoreFilter(nil, nil)); err != nil {
+	if err := r.Storage.Archive(&artifact, stagingDir, gotkstorage.SourceIgnoreFilter(nil, nil)); err != nil {
 		return nil, fmt.Errorf("failed to create artifact: %w", err)
 	}
 

@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/fluxcd/pkg/runtime/predicates"
+	gotkpredicates "github.com/fluxcd/pkg/runtime/predicates"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -62,7 +62,7 @@ func (r *ArtifactGeneratorReconciler) SetupWithManager(ctx context.Context,
 			builder.WithPredicates(
 				predicate.Or(
 					predicate.GenerationChangedPredicate{},
-					predicates.ReconcileRequestedPredicate{},
+					gotkpredicates.ReconcileRequestedPredicate{},
 				),
 			)).
 		Watches(

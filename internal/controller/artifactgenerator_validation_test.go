@@ -25,8 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/runtime/conditions"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -132,8 +132,8 @@ func TestResourceSetReconciler_specValidation(t *testing.T) {
 			// Verify the object is stalled with validation failed reason
 			err = testClient.Get(ctx, objKey, obj)
 			g.Expect(err).ToNot(HaveOccurred())
-			g.Expect(conditions.IsStalled(obj)).To(BeTrue())
-			g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(tt.expectedReason))
+			g.Expect(gotkconditions.IsStalled(obj)).To(BeTrue())
+			g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(tt.expectedReason))
 
 			// Verify event was recorded
 			events := getEvents(obj.Name, obj.Namespace)

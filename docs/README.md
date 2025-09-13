@@ -21,6 +21,7 @@ with advanced source composition and decomposition patterns.
 | `--artifact-retention-ttl`            | duration      | The duration of time that artifacts from previous reconciliations will be kept in storage before being garbage collected. (default 1m0s)                                                 |
 | `--concurrent`                        | int           | The number of concurrent reconciles per controller. (default 10)                                                                                                                         |
 | `--enable-leader-election`            | boolean       | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.                                                                    |
+| `--events-addr`                       | string        | The address of the events receiver.                                                                                                                                                      |
 | `--health-addr`                       | string        | The address the health endpoint binds to. (default ":9440")                                                                                                                              |
 | `--http-retry`                        | int           | The maximum number of retries when failing to fetch artifacts over HTTP. (default 9)                                                                                                     |
 | `--interval-jitter-percentage`        | uint8         | Percentage of jitter to apply to interval durations. A value of 10 will apply a jitter of +/-10% to the interval duration. It cannot be negative, and must be less than 100. (default 5) |
@@ -39,6 +40,7 @@ with advanced source composition and decomposition patterns.
 | `--storage-addr`                      | string        | The address the static file server binds to. (default ":9090")                                                                                                                           |
 | `--storage-adv-addr`                  | string        | The advertised address of the static file server.                                                                                                                                        |
 | `--storage-path`                      | string        | The local storage path. (default "/data")                                                                                                                                                |
+| `--watch-all-namespaces`              | boolean       | Watch for resources in all namespaces, if set to false it will only watch the runtime namespace. (default true)                                                                          |
 | `--feature-gates`                     | mapStringBool | A comma separated list of key=value pairs defining the state of experimental features.                                                                                                   |
 
 ### Feature Gates
