@@ -22,10 +22,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 	"github.com/fluxcd/source-watcher/internal/builder"
@@ -105,9 +106,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionTrue,
-							Reason:             meta.SucceededReason,
+							Reason:             gotkmeta.SucceededReason,
 							ObservedGeneration: 1,
 						},
 					},
@@ -137,9 +138,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionFalse, // Not ready
-							Reason:             meta.BuildFailedReason,
+							Reason:             gotkmeta.BuildFailedReason,
 							ObservedGeneration: 1,
 						},
 					},
@@ -161,9 +162,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionTrue,
-							Reason:             meta.SucceededReason,
+							Reason:             gotkmeta.SucceededReason,
 							ObservedGeneration: 1, // Different from Generation
 						},
 					},
@@ -185,9 +186,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionTrue,
-							Reason:             meta.SucceededReason,
+							Reason:             gotkmeta.SucceededReason,
 							ObservedGeneration: 1,
 						},
 					},
@@ -215,9 +216,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionTrue,
-							Reason:             meta.SucceededReason,
+							Reason:             gotkmeta.SucceededReason,
 							ObservedGeneration: 1,
 						},
 					},
@@ -251,9 +252,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionTrue,
-							Reason:             meta.SucceededReason,
+							Reason:             gotkmeta.SucceededReason,
 							ObservedGeneration: 1,
 						},
 					},
@@ -299,9 +300,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:               meta.ReadyCondition,
+							Type:               gotkmeta.ReadyCondition,
 							Status:             metav1.ConditionTrue,
-							Reason:             meta.SucceededReason,
+							Reason:             gotkmeta.SucceededReason,
 							ObservedGeneration: 1,
 						},
 					},

@@ -29,23 +29,24 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/fluxcd/pkg/artifact/config"
-	"github.com/fluxcd/pkg/artifact/digest"
-	"github.com/fluxcd/pkg/artifact/server"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/runtime/acl"
-	"github.com/fluxcd/pkg/runtime/client"
-	ctrl "github.com/fluxcd/pkg/runtime/controller"
-	"github.com/fluxcd/pkg/runtime/features"
-	"github.com/fluxcd/pkg/runtime/jitter"
-	"github.com/fluxcd/pkg/runtime/leaderelection"
-	"github.com/fluxcd/pkg/runtime/logger"
-	"github.com/fluxcd/pkg/runtime/pprof"
-	"github.com/fluxcd/pkg/runtime/probes"
+	gotkconfig "github.com/fluxcd/pkg/artifact/config"
+	gotkdigest "github.com/fluxcd/pkg/artifact/digest"
+	gotkserver "github.com/fluxcd/pkg/artifact/server"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	gotkacl "github.com/fluxcd/pkg/runtime/acl"
+	gotkclient "github.com/fluxcd/pkg/runtime/client"
+	gotkctrl "github.com/fluxcd/pkg/runtime/controller"
+	gotkfeatures "github.com/fluxcd/pkg/runtime/features"
+	gotkjitter "github.com/fluxcd/pkg/runtime/jitter"
+	gotkelection "github.com/fluxcd/pkg/runtime/leaderelection"
+	gotklogger "github.com/fluxcd/pkg/runtime/logger"
+	gotkpprof "github.com/fluxcd/pkg/runtime/pprof"
+	gotkprobes "github.com/fluxcd/pkg/runtime/probes"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
@@ -71,23 +72,30 @@ func main() {
 	var (
 		metricsAddr           string
 		healthAddr            string
+		eventsAddr            string
 		concurrent            int
 		httpRetry             int
 		reconciliationTimeout time.Duration
 		requeueDependency     time.Duration
-		artifactOptions       config.Options
-		aclOptions            acl.Options
-		clientOptions         client.Options
-		logOptions            logger.Options
-		leaderElectionOptions leaderelection.Options
-		rateLimiterOptions    ctrl.RateLimiterOptions
-		intervalJitterOptions jitter.IntervalOptions
-		featureGates          features.FeatureGates
+
+		// GitOps Toolkit (gotk) runtime options.
+		// https://pkg.go.dev/github.com/fluxcd/pkg/runtime
+
+		aclOptions            gotkacl.Options
+		artifactOptions       gotkconfig.Options
+		clientOptions         gotkclient.Options
+		featureGates          gotkfeatures.FeatureGates
+		intervalJitterOptions gotkjitter.IntervalOptions
+		leaderElectionOptions gotkelection.Options
+		logOptions            gotklogger.Options
+		rateLimiterOptions    gotkctrl.RateLimiterOptions
+		watchOptions          gotkctrl.WatchOptions
 	)
 
 	flag.IntVar(&concurrent, "concurrent", 10, "The number of concurrent resource reconciles.")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&healthAddr, "health-addr", ":9440", "The address the health endpoint binds to.")
+	flag.StringVar(&eventsAddr, "events-addr", "", "The address of the events receiver.")
 	flag.IntVar(&httpRetry, "http-retry", 9,
 		"The maximum number of retries when failing to fetch artifacts over HTTP.")
 	flag.DurationVar(&reconciliationTimeout, "reconciliation-timeout", 10*time.Minute,
@@ -95,27 +103,28 @@ func main() {
 	flag.DurationVar(&requeueDependency, "requeue-dependency", 5*time.Second,
 		"The interval at which failing dependencies are reevaluated.")
 
-	artifactOptions.BindFlags(flag.CommandLine)
 	aclOptions.BindFlags(flag.CommandLine)
+	artifactOptions.BindFlags(flag.CommandLine)
 	clientOptions.BindFlags(flag.CommandLine)
-	logOptions.BindFlags(flag.CommandLine)
-	leaderElectionOptions.BindFlags(flag.CommandLine)
-	rateLimiterOptions.BindFlags(flag.CommandLine)
-	intervalJitterOptions.BindFlags(flag.CommandLine)
 	featureGates.BindFlags(flag.CommandLine)
+	intervalJitterOptions.BindFlags(flag.CommandLine)
+	leaderElectionOptions.BindFlags(flag.CommandLine)
+	logOptions.BindFlags(flag.CommandLine)
+	rateLimiterOptions.BindFlags(flag.CommandLine)
+	watchOptions.BindFlags(flag.CommandLine)
 
 	flag.Parse()
 
-	ctrlruntime.SetLogger(logger.NewLogger(logOptions))
+	ctrlruntime.SetLogger(gotklogger.NewLogger(logOptions))
 
-	digestAlgo, err := digest.AlgorithmForName(artifactOptions.ArtifactDigestAlgo)
+	digestAlgo, err := gotkdigest.AlgorithmForName(artifactOptions.ArtifactDigestAlgo)
 	if err != nil {
 		setupLog.Error(err, "unable to configure canonical digest algorithm")
 		os.Exit(1)
 	}
-	digest.Canonical = digestAlgo
+	gotkdigest.Canonical = digestAlgo
 
-	artifactStorage, err := storage.New(&artifactOptions)
+	artifactStorage, err := gotkstorage.New(&artifactOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to configure artifact storage")
 		os.Exit(1)
@@ -127,13 +136,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx := ctrlruntime.SetupSignalHandler()
 	leaderElectionID := fmt.Sprintf("%s-%s", controllerName, "leader-election")
-	mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), ctrlruntime.Options{
+
+	// Configure the manager with the GitOps Toolkit runtime options.
+	mgrConfig := ctrlruntime.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress:   metricsAddr,
-			ExtraHandlers: pprof.GetHandlers(),
+			ExtraHandlers: gotkpprof.GetHandlers(),
 		},
 		HealthProbeBindAddress:        healthAddr,
 		LeaderElection:                leaderElectionOptions.Enable,
@@ -149,19 +159,32 @@ func main() {
 		},
 		Client: ctrlclient.Options{
 			Cache: &ctrlclient.CacheOptions{
+				// We don't cache Secrets and ConfigMaps
+				// as it would lead to unnecessary memory consumption.
 				DisableFor: []ctrlclient.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
 			},
 		},
-	})
+	}
+
+	// Limit the watch scope to the runtime namespace if specified.
+	if !watchOptions.AllNamespaces {
+		mgrConfig.Cache.DefaultNamespaces = map[string]ctrlcache.Config{
+			os.Getenv(gotkctrl.EnvRuntimeNamespace): ctrlcache.Config{},
+		}
+	}
+
+	ctx := ctrlruntime.SetupSignalHandler()
+	mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), mgrConfig)
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
 	}
 
 	// Note that the liveness check will pass beyond this point, but the readiness
 	// check will continue to fail until this controller instance is elected leader.
-	probes.SetupChecks(mgr, setupLog)
+	gotkprobes.SetupChecks(mgr, setupLog)
 
+	// Register the ArtifactGenerator controller with the manager.
 	if err = (&controller.ArtifactGeneratorReconciler{
 		ControllerName:            controllerName,
 		Client:                    mgr.GetClient(),
@@ -173,7 +196,7 @@ func main() {
 		DependencyRequeueInterval: requeueDependency,
 		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
 	}).SetupWithManager(ctx, mgr, controller.ArtifactGeneratorReconcilerOptions{
-		RateLimiter: ctrl.GetRateLimiter(rateLimiterOptions),
+		RateLimiter: gotkctrl.GetRateLimiter(rateLimiterOptions),
 	}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", swapi.ArtifactGeneratorKind)
 		os.Exit(1)
@@ -190,7 +213,7 @@ func main() {
 		// This will make the readiness check pass and Kubernetes will start
 		// routing traffic from kustomize-controller and helm-controller to this instance.
 		setupLog.Info("starting storage server on " + artifactOptions.StorageAddress)
-		if err := server.Start(ctx, &artifactOptions); err != nil {
+		if err := gotkserver.Start(ctx, &artifactOptions); err != nil {
 			setupLog.Error(err, "artifact server error")
 			os.Exit(1)
 		}

@@ -23,37 +23,37 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/config"
-	"github.com/fluxcd/pkg/artifact/digest"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/tar"
-	"github.com/fluxcd/pkg/testserver"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkconfig "github.com/fluxcd/pkg/artifact/config"
+	gotkdigest "github.com/fluxcd/pkg/artifact/digest"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	gotktar "github.com/fluxcd/pkg/tar"
+	gotktestsrv "github.com/fluxcd/pkg/testserver"
 
 	"github.com/fluxcd/source-watcher/internal/builder"
 )
 
 var (
 	testBuilder *builder.ArtifactBuilder
-	testStorage *storage.Storage
-	testServer  *testserver.ArtifactServer
+	testStorage *gotkstorage.Storage
+	testServer  *gotktestsrv.ArtifactServer
 )
 
 func TestMain(m *testing.M) {
 	var err error
-	testServer, err = testserver.NewTempArtifactServer()
+	testServer, err = gotktestsrv.NewTempArtifactServer()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create a temporary storage server: %v", err))
 	}
 	testServer.Start()
 
-	testStorage, err = storage.New(&config.Options{
+	testStorage, err = gotkstorage.New(&gotkconfig.Options{
 		ArtifactRetentionRecords: 2,
 
 		StoragePath:          testServer.Root(),
 		StorageAddress:       testServer.URL(),
 		StorageAdvAddress:    testServer.URL(),
-		ArtifactDigestAlgo:   digest.Canonical.String(),
+		ArtifactDigestAlgo:   gotkdigest.Canonical.String(),
 		ArtifactRetentionTTL: time.Hour,
 	})
 	if err != nil {
@@ -75,8 +75,8 @@ func TestMain(m *testing.M) {
 // verifyContents extracts and verifies the contents of a tar.gz artifact
 // It takes the expected files from the staging directory and verifies they exist in the tar.gz
 func verifyContents(t *testing.T,
-	testStorage *storage.Storage,
-	artifact *meta.Artifact,
+	testStorage *gotkstorage.Storage,
+	artifact *gotkmeta.Artifact,
 	stagingDir string,
 	expectedFiles map[string]string) {
 	t.Helper()
@@ -95,7 +95,7 @@ func verifyContents(t *testing.T,
 	defer file.Close()
 
 	// Extract the tar.gz file
-	if err := tar.Untar(file, extractDir, tar.WithMaxUntarSize(-1)); err != nil {
+	if err := gotktar.Untar(file, extractDir, gotktar.WithMaxUntarSize(-1)); err != nil {
 		t.Fatalf("Failed to extract tar.gz %s: %v", artifactPath, err)
 	}
 

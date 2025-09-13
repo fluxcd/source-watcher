@@ -23,17 +23,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxcd/pkg/artifact/config"
-	"github.com/fluxcd/pkg/artifact/digest"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/runtime/testenv"
-	"github.com/fluxcd/pkg/testserver"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	gotkconfig "github.com/fluxcd/pkg/artifact/config"
+	gotkdigest "github.com/fluxcd/pkg/artifact/digest"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	gotktestenv "github.com/fluxcd/pkg/runtime/testenv"
+	gotktestsrv "github.com/fluxcd/pkg/testserver"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 	"github.com/fluxcd/source-watcher/internal/controller"
@@ -43,9 +44,9 @@ import (
 var (
 	controllerName   = "source-watcher"
 	timeout          = 15 * time.Second
-	testStorage      *storage.Storage
-	testServer       *testserver.ArtifactServer
-	testEnv          *testenv.Environment
+	testStorage      *gotkstorage.Storage
+	testServer       *gotktestsrv.ArtifactServer
+	testEnv          *gotktestenv.Environment
 	testClient       client.Client
 	testCtx          = ctrl.SetupSignalHandler()
 	retentionTTL     = 2 * time.Second
@@ -63,14 +64,14 @@ func NewTestScheme() *runtime.Scheme {
 
 func TestMain(m *testing.M) {
 	var err error
-	testEnv = testenv.New(
-		testenv.WithCRDPath(
+	testEnv = gotktestenv.New(
+		gotktestenv.WithCRDPath(
 			filepath.Join("..", "..", "config", "crd", "bases"),
 		),
-		testenv.WithScheme(NewTestScheme()),
+		gotktestenv.WithScheme(NewTestScheme()),
 	)
 
-	testServer, err = testserver.NewTempArtifactServer()
+	testServer, err = gotktestsrv.NewTempArtifactServer()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create a temporary storage server: %v", err))
 	}
@@ -113,16 +114,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newTestStorage(s *testserver.HTTPServer) (*storage.Storage, error) {
-	opts := &config.Options{
+func newTestStorage(s *gotktestsrv.HTTPServer) (*gotkstorage.Storage, error) {
+	opts := &gotkconfig.Options{
 		StoragePath:              s.Root(),
 		StorageAddress:           s.URL(),
 		StorageAdvAddress:        s.URL(),
 		ArtifactRetentionTTL:     retentionTTL,
 		ArtifactRetentionRecords: retentionRecords,
-		ArtifactDigestAlgo:       digest.Canonical.String(),
+		ArtifactDigestAlgo:       gotkdigest.Canonical.String(),
 	}
-	st, err := storage.New(opts)
+	st, err := gotkstorage.New(opts)
 	if err != nil {
 		return nil, err
 	}

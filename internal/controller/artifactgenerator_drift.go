@@ -20,12 +20,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -48,14 +49,14 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	// Setup logger on debug level.
 	log := ctrl.LoggerFrom(ctx).V(1)
 
-	if conditions.IsFalse(obj, meta.ReadyCondition) {
+	if gotkconditions.IsFalse(obj, gotkmeta.ReadyCondition) {
 		log.Info("Drift detected, previous reconciliation failed")
 		return true, "NotReady"
 	}
 
-	if obj.GetGeneration() != conditions.GetObservedGeneration(obj, meta.ReadyCondition) {
+	if obj.GetGeneration() != gotkconditions.GetObservedGeneration(obj, gotkmeta.ReadyCondition) {
 		log.Info("Drift detected, generation has changed",
-			"old", conditions.GetObservedGeneration(obj, meta.ReadyCondition),
+			"old", gotkconditions.GetObservedGeneration(obj, gotkmeta.ReadyCondition),
 			"new", obj.GetGeneration())
 		return true, "GenerationChanged"
 	}
@@ -75,8 +76,8 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	}
 
 	for _, eaRef := range obj.Status.Inventory {
-		storagePath := storage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
-		artifact := meta.Artifact{
+		storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
+		artifact := gotkmeta.Artifact{
 			Digest: eaRef.Digest,
 			Path:   storagePath,
 		}

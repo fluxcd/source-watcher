@@ -32,10 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	"github.com/fluxcd/pkg/artifact/config"
-	"github.com/fluxcd/pkg/artifact/digest"
-	"github.com/fluxcd/pkg/artifact/storage"
-	"github.com/fluxcd/pkg/runtime/testenv"
+	gotkconfig "github.com/fluxcd/pkg/artifact/config"
+	gotkdigest "github.com/fluxcd/pkg/artifact/digest"
+	gotkstorage "github.com/fluxcd/pkg/artifact/storage"
+	gotktestenv "github.com/fluxcd/pkg/runtime/testenv"
 	"github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
@@ -46,9 +46,9 @@ import (
 var (
 	controllerName   = "source-watcher"
 	timeout          = 10 * time.Second
-	testStorage      *storage.Storage
+	testStorage      *gotkstorage.Storage
 	testServer       *testserver.ArtifactServer
-	testEnv          *testenv.Environment
+	testEnv          *gotktestenv.Environment
 	testClient       client.Client
 	testCtx          = ctrl.SetupSignalHandler()
 	retentionTTL     = 2 * time.Second
@@ -66,11 +66,11 @@ func NewTestScheme() *runtime.Scheme {
 
 func TestMain(m *testing.M) {
 	var err error
-	testEnv = testenv.New(
-		testenv.WithCRDPath(
+	testEnv = gotktestenv.New(
+		gotktestenv.WithCRDPath(
 			filepath.Join("..", "..", "config", "crd", "bases"),
 		),
-		testenv.WithScheme(NewTestScheme()),
+		gotktestenv.WithScheme(NewTestScheme()),
 	)
 
 	testServer, err = testserver.NewTempArtifactServer()
@@ -112,16 +112,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newTestStorage(s *testserver.HTTPServer) (*storage.Storage, error) {
-	opts := &config.Options{
+func newTestStorage(s *testserver.HTTPServer) (*gotkstorage.Storage, error) {
+	opts := &gotkconfig.Options{
 		StoragePath:              s.Root(),
 		StorageAddress:           s.URL(),
 		StorageAdvAddress:        s.URL(),
 		ArtifactRetentionTTL:     retentionTTL,
 		ArtifactRetentionRecords: retentionRecords,
-		ArtifactDigestAlgo:       digest.Canonical.String(),
+		ArtifactDigestAlgo:       gotkdigest.Canonical.String(),
 	}
-	st, err := storage.New(opts)
+	st, err := gotkstorage.New(opts)
 	if err != nil {
 		return nil, err
 	}

@@ -25,9 +25,9 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/runtime/conditions"
-	"github.com/fluxcd/pkg/runtime/patch"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotkpatch "github.com/fluxcd/pkg/runtime/patch"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -42,24 +42,24 @@ const (
 // by setting the last handled reconcile time and removing stale conditions.
 func (r *ArtifactGeneratorReconciler) summarizeStatus(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	patcher *patch.SerialPatcher) error {
+	patcher *gotkpatch.SerialPatcher) error {
 	// Set the value of the reconciliation request in status.
-	if v, ok := meta.ReconcileAnnotationValue(obj.GetAnnotations()); ok {
+	if v, ok := gotkmeta.ReconcileAnnotationValue(obj.GetAnnotations()); ok {
 		obj.SetLastHandledReconcileAt(v)
 	}
 
 	// Set the Reconciling reason to ProgressingWithRetry if the
 	// reconciliation has failed.
-	if conditions.IsFalse(obj, meta.ReadyCondition) &&
-		conditions.Has(obj, meta.ReconcilingCondition) {
-		rc := conditions.Get(obj, meta.ReconcilingCondition)
-		rc.Reason = meta.ProgressingWithRetryReason
-		conditions.Set(obj, rc)
+	if gotkconditions.IsFalse(obj, gotkmeta.ReadyCondition) &&
+		gotkconditions.Has(obj, gotkmeta.ReconcilingCondition) {
+		rc := gotkconditions.Get(obj, gotkmeta.ReconcilingCondition)
+		rc.Reason = gotkmeta.ProgressingWithRetryReason
+		gotkconditions.Set(obj, rc)
 	}
 
 	// Remove the Reconciling condition.
-	if conditions.IsTrue(obj, meta.ReadyCondition) || conditions.IsTrue(obj, meta.StalledCondition) {
-		conditions.Delete(obj, meta.ReconcilingCondition)
+	if gotkconditions.IsTrue(obj, gotkmeta.ReadyCondition) || gotkconditions.IsTrue(obj, gotkmeta.StalledCondition) {
+		gotkconditions.Delete(obj, gotkmeta.ReconcilingCondition)
 	}
 
 	// Patch finalizers, status and conditions.
@@ -69,17 +69,17 @@ func (r *ArtifactGeneratorReconciler) summarizeStatus(ctx context.Context,
 // patchStatus patches the object status sub-resource and finalizers.
 func (r *ArtifactGeneratorReconciler) patchStatus(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	patcher *patch.SerialPatcher) (retErr error) {
+	patcher *gotkpatch.SerialPatcher) (retErr error) {
 	// Configure the runtime patcher.
 	ownedConditions := []string{
-		meta.ReadyCondition,
-		meta.ReconcilingCondition,
-		meta.StalledCondition,
+		gotkmeta.ReadyCondition,
+		gotkmeta.ReconcilingCondition,
+		gotkmeta.StalledCondition,
 	}
-	patchOpts := []patch.Option{
-		patch.WithOwnedConditions{Conditions: ownedConditions},
-		patch.WithForceOverwriteConditions{},
-		patch.WithFieldOwner(r.ControllerName),
+	patchOpts := []gotkpatch.Option{
+		gotkpatch.WithOwnedConditions{Conditions: ownedConditions},
+		gotkpatch.WithForceOverwriteConditions{},
+		gotkpatch.WithFieldOwner(r.ControllerName),
 	}
 
 	// Patch the object status, conditions and finalizers.
@@ -102,8 +102,8 @@ func (r *ArtifactGeneratorReconciler) patchStatus(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) newTerminalErrorFor(obj *swapi.ArtifactGenerator,
 	reason string, messageFormat string, messageArgs ...any) error {
 	terminalErr := fmt.Errorf(messageFormat, messageArgs...)
-	conditions.MarkFalse(obj, meta.ReadyCondition, reason, "%s", terminalErr.Error())
-	conditions.MarkStalled(obj, reason, "%s", terminalErr.Error())
+	gotkconditions.MarkFalse(obj, gotkmeta.ReadyCondition, reason, "%s", terminalErr.Error())
+	gotkconditions.MarkStalled(obj, reason, "%s", terminalErr.Error())
 	r.Event(obj, corev1.EventTypeWarning, reason, terminalErr.Error())
 	return reconcile.TerminalError(terminalErr)
 }

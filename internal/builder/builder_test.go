@@ -23,8 +23,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fluxcd/pkg/apis/meta"
 	. "github.com/onsi/gomega"
+
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -33,7 +34,7 @@ func TestBuild(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupFunc    func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
-		validateFunc func(t *testing.T, artifact *meta.Artifact, stagingDir string)
+		validateFunc func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string)
 	}{
 		{
 			name: "build artifact with single file copy",
@@ -61,7 +62,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "config.yaml"): "apiVersion: v1\nkind: ConfigMap",
 				}
@@ -101,7 +102,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedRevision := fmt.Sprintf("latest@%s", artifact.Digest)
 				if artifact.Revision != expectedRevision {
 					t.Errorf("Expected revision '%s', got '%s'", expectedRevision, artifact.Revision)
@@ -142,7 +143,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "manifests", "deployment.yaml"): "apiVersion: v1",
 					filepath.Join(stagingDir, "manifests", "service.yaml"):    "apiVersion: v1",
@@ -178,7 +179,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "root.yaml"):             "root: content",
 					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested: content",
@@ -213,7 +214,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "root.yaml"):             "root: content",
 					filepath.Join(stagingDir, "subdir", "nested.yaml"): "nested: content",
@@ -258,7 +259,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					// app.yaml should be overwritten by source2
 					filepath.Join(stagingDir, "config", "app.yaml"): "source2: app",
@@ -299,7 +300,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				// Since destination always exists, cp creates config as subdirectory
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "dest", "config", "app.yaml"): "app: config",
@@ -337,7 +338,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				// Should create dest/config/ with contents
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "dest", "config", "app.yaml"): "app: config",
@@ -373,7 +374,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "dest", "config.yaml"): "a: test",
 				}
@@ -411,7 +412,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "dest", "app.yaml"):          "app: config",
 					filepath.Join(stagingDir, "dest", "subdir", "db.yaml"): "db: config",
@@ -456,7 +457,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "Chart.yaml"):             "name: podinfo",
 					filepath.Join(stagingDir, "podinfo", "values.yaml"): "env: production",
@@ -495,7 +496,7 @@ func TestBuild(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				expectedFiles := map[string]string{
 					filepath.Join(stagingDir, "subdir", "file1.txt"): "content1",
 					filepath.Join(stagingDir, "subdir", "file2.txt"): "content2",
@@ -693,7 +694,7 @@ func TestBuildWithExcludes(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupFunc     func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string)
-		validateFunc  func(t *testing.T, artifact *meta.Artifact, stagingDir string)
+		validateFunc  func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string)
 		expectError   bool
 		expectedError string
 	}{
@@ -730,7 +731,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				g := NewWithT(t)
 				artifactDir := filepath.Join(stagingDir, "test-artifact")
 
@@ -779,7 +780,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				g := NewWithT(t)
 				artifactDir := filepath.Join(stagingDir, "test-artifact")
 
@@ -836,7 +837,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				g := NewWithT(t)
 				artifactDir := filepath.Join(stagingDir, "test-artifact")
 
@@ -888,7 +889,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				g := NewWithT(t)
 				artifactDir := filepath.Join(stagingDir, "test-artifact")
 
@@ -932,7 +933,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				g := NewWithT(t)
 				artifactDir := filepath.Join(stagingDir, "test-artifact")
 
@@ -975,7 +976,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				// This test expects an error, so validateFunc won't be called
 			},
 			expectError:   true,
@@ -1006,7 +1007,7 @@ func TestBuildWithExcludes(t *testing.T) {
 
 				return spec, sources, workspaceDir
 			},
-			validateFunc: func(t *testing.T, artifact *meta.Artifact, stagingDir string) {
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
 				// This test expects an error, so validateFunc won't be called
 			},
 			expectError:   true,

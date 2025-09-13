@@ -26,8 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/runtime/conditions"
+	gotkmeta "github.com/fluxcd/pkg/apis/meta"
+	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 
 	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
 )
@@ -64,8 +64,8 @@ func TestResourceSetReconciler_Finalize(t *testing.T) {
 	g.Expect(obj.Finalizers).To(ContainElement(swapi.Finalizer))
 
 	// Verify the object is in reconciling state
-	g.Expect(conditions.IsReconciling(obj)).To(BeTrue())
-	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(meta.ProgressingReason))
+	g.Expect(gotkconditions.IsReconciling(obj)).To(BeTrue())
+	g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(gotkmeta.ProgressingReason))
 
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
@@ -129,8 +129,8 @@ func TestResourceSetReconciler_Finalize_Disabled(t *testing.T) {
 	// Verify the object is marked as disabled
 	err = testClient.Get(ctx, objKey, obj)
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(conditions.IsTrue(obj, meta.ReadyCondition)).To(BeTrue())
-	g.Expect(conditions.GetReason(obj, meta.ReadyCondition)).To(Equal(swapi.ReconciliationDisabledReason))
+	g.Expect(gotkconditions.IsTrue(obj, gotkmeta.ReadyCondition)).To(BeTrue())
+	g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(swapi.ReconciliationDisabledReason))
 
 	// Delete the object to trigger finalization
 	err = testClient.Delete(ctx, obj)
