@@ -19,7 +19,7 @@ package v1beta1_test
 import (
 	"testing"
 
-	"github.com/fluxcd/source-watcher/api/v1beta1"
+	"github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 func TestHashObservedSources(t *testing.T) {

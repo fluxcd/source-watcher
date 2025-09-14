@@ -136,10 +136,12 @@ spec:
       name: my-monorepo
   artifacts:
     - name: frontend
+      originRevision: "@repo"
       copy:
         - from: "@repo/deploy/frontend/**"
           to: "@artifact/"
     - name: backend
+      originRevision: "@repo"
       copy:
         - from: "@repo/deploy/backend/**"
           to: "@artifact/"
@@ -236,7 +238,9 @@ Each artifact must specify:
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
 - `originRevision` (optional): A specific source origin revision to include in the artifact metadata
-  in the format `@alias`. This is useful for sources of type `OCIRepository` to track the origin Git commit.
+  in the format `@alias`. This is useful for the decomposition use case, where you want to track
+  the original source revision of the artifact (e.g. the monorepo commit SHA) without affecting
+  the artifact revision itself.
 
 ```yaml
 spec:
@@ -264,8 +268,8 @@ Each copy operation specifies how to copy files from sources into the generated 
   the root of the generated artifact and `path` is the relative path to a file or directory.
 - `exclude` (optional): A list of glob patterns to filter out from the source selection.
   Any file matched by `from` that also matches an exclude pattern will be ignored.
-- `strategy` (optional): Can be `Overwrite` (default) or `Merge`. The `Merge` strategy
-  only works for YAML files and merges using the same logic as Helm for `values.yaml` files.
+- `strategy` (optional): Defines how to handle existing files at the destination, 
+  either `Overwrite` (default) or `Merge` (for YAML files only).
 
 Copy operations use `cp`-like semantics:
 
@@ -300,6 +304,14 @@ Examples of copy operations:
     - "**/testdata/**"             # Excludes all files under any testdata/ dir
 ```
 
+#### Copy Strategies
+
+By default, copy operations use the `Overwrite` strategy, where later copies
+overwrite files from earlier ones.
+
+When copying YAML files, the `Merge` strategy can be used to merge the contents
+from the source file into the destination file.
+
 Example of copy with `Merge` strategy:
 
 ```yaml
@@ -312,8 +324,8 @@ Example of copy with `Merge` strategy:
   strategy: Merge
 ```
 
-**Note** that the merge strategy will replace _arrays_ entirely,
-the behavior is the same as Helm's `values.yaml` merging.
+**Note** that the merge strategy will replace _arrays_ entirely, the behavior is
+identical to how Helm merges `values.yaml` files when using multiple `--values` flags.
 
 ## Working with ArtifactGenerators
 

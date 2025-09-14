@@ -26,7 +26,7 @@ import (
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
 func TestBuild_YAMLMergeStrategy(t *testing.T) {
@@ -165,6 +165,81 @@ env: production
 a: override
 c:
   d: e
+`))
+			},
+		},
+		{
+			name: "merge YAML in dirs successfully",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				source1Dir := filepath.Join(tmpDir, "source1")
+				source2Dir := filepath.Join(tmpDir, "source2")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, source1Dir, source2Dir, workspaceDir)
+
+				// Create first source with base config
+				createFile(t, source1Dir, "config1.yaml", `
+env: dev
+region: us-west-1
+`)
+				createFile(t, source1Dir, "config2.yaml", `
+version: 1.0.0
+image: my-app:latest
+`)
+
+				// Create second source with overlay config
+				createFile(t, source2Dir, "config1.yaml", "env: prod")   // This should overwrite the env
+				createFile(t, source2Dir, "config2.yaml", "replicas: 5") // This should add a new field
+
+				spec := &swapi.OutputArtifact{
+					Name: "yaml-to-yaml-dir-merge",
+					Copy: []swapi.CopyOperation{
+						{
+							From:     "@source1/**",
+							To:       "@artifact/",
+							Strategy: swapi.OverwriteStrategy,
+						},
+						{
+							From:     "@source2/**",
+							To:       "@artifact/",
+							Strategy: swapi.MergeStrategy,
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source1": source1Dir,
+					"source2": source2Dir,
+				}
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
+				g := NewWithT(t)
+				g.Expect(artifact).ToNot(BeNil())
+
+				// Read the merged config from staging directory
+				stagingDir := filepath.Join(workspaceDir, "yaml-to-yaml-dir-merge")
+				config1Path := filepath.Join(stagingDir, "config1.yaml")
+				config2Path := filepath.Join(stagingDir, "config2.yaml")
+
+				config1Content, err := os.ReadFile(config1Path)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(config1Content).ToNot(BeEmpty())
+
+				config2Content, err := os.ReadFile(config2Path)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(config2Content).ToNot(BeEmpty())
+
+				// Verify the merged YAML contains expected content
+				g.Expect(config1Content).To(MatchYAML(`
+env: prod
+region: us-west-1
+`))
+				g.Expect(config2Content).To(MatchYAML(`
+image: my-app:latest
+replicas: 5
+version: 1.0.0
 `))
 			},
 		},

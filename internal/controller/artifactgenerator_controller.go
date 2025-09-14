@@ -44,8 +44,8 @@ import (
 	gotktar "github.com/fluxcd/pkg/tar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
-	swapi "github.com/fluxcd/source-watcher/api/v1beta1"
-	"github.com/fluxcd/source-watcher/internal/builder"
+	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
+	"github.com/fluxcd/source-watcher/v2/internal/builder"
 )
 
 // ArtifactGeneratorReconciler reconciles a ArtifactGenerator object.
