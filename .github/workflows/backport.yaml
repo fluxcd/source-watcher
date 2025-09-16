@@ -1,0 +1,10 @@
+name: backport
+on:
+  pull_request_target:
+    types: [closed, labeled]
+jobs:
+  backport:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: fluxcd/gha-workflows/.github/workflows/backport.yaml@v0.0.2
