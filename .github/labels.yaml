@@ -1,0 +1,13 @@
+# Configuration file to declaratively configure labels
+# Ref: https://github.com/EndBug/label-sync#Config-files
+
+- name: area/generator
+  description: Artifact generation related issues and pull requests
+  color: '#00b140'
+- name: area/storage
+  description: Artifact storage related issues and pull requests
+  color: '#4b0082'
+- name: backport:release/v2.0.x
+  description: To be backported to release/v2.0.x
+  color: '#ffd700'
+
