@@ -11,4 +11,4 @@ jobs:
     permissions:
       issues: write
       contents: read
-    uses: fluxcd/gha-workflows/.github/workflows/labels-sync.yaml@v0.0.1
+    uses: fluxcd/gha-workflows/.github/workflows/labels-sync.yaml@v0.0.4
