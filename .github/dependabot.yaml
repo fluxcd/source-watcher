@@ -2,6 +2,7 @@ version: 2
 
 updates:
   - package-ecosystem: "gomod"
+    labels: ["dependencies"]
     directory: "/"
     schedule:
       interval: "monthly"
@@ -20,6 +21,7 @@ updates:
       - dependency-name: "k8s.io/*"
       - dependency-name: "sigs.k8s.io/*"
   - package-ecosystem: "github-actions"
+    labels: ["dependencies"]
     directory: "/"
     schedule:
       interval: "monthly"
@@ -28,6 +30,7 @@ updates:
         patterns:
           - "*"
   - package-ecosystem: "docker"
+    labels: ["dependencies"]
     directory: "/"
     schedule:
       interval: "monthly"
