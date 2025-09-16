@@ -7,6 +7,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: fluxcd/gha-workflows/.github/workflows/backport.yaml@v0.0.2
+    uses: fluxcd/gha-workflows/.github/workflows/backport.yaml@v0.0.3
     secrets:
-      github-token: ${{ secrets.BOT_GITHUB_TOKEN }}
+      github-token: ${{ secrets.GITHUB_TOKEN }}
