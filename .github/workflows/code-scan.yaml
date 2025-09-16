@@ -1,0 +1,15 @@
+name: code-scan
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  analyze:
+    permissions:
+      contents: read
+      security-events: write
+    uses: fluxcd/gha-workflows/.github/workflows/code-scan.yaml@v0.0.4
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      fossa-token: ${{ secrets.FOSSA_TOKEN }}
