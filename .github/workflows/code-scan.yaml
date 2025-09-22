@@ -7,9 +7,9 @@ on:
 jobs:
   analyze:
     permissions:
-      contents: read
-      security-events: write
-    uses: fluxcd/gha-workflows/.github/workflows/code-scan.yaml@v0.0.4
+      contents: read # for reading the repository code.
+      security-events: write # for uploading the CodeQL analysis results.
+    uses: fluxcd/gha-workflows/.github/workflows/code-scan.yaml@v0.3.0
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
       fossa-token: ${{ secrets.FOSSA_TOKEN }}
