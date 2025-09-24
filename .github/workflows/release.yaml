@@ -25,13 +25,14 @@ jobs:
   release-provenance:
     needs: [release]
     permissions:
-      actions: read # To read the workflow path.
-      id-token: write # To sign the provenance.
-      contents: write # To add assets to the release.
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      contents: write # for uploading attestations to GitHub releases.
+    if: startsWith(github.ref, 'refs/tags/v')
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       provenance-name: "provenance.intoto.jsonl"
-      base64-subjects: "${{ needs.release.outputs.hashes }}"
+      base64-subjects: "${{ needs.release.outputs.release-digests }}"
       upload-assets: true
   dockerhub-provenance:
     needs: [release]
@@ -40,11 +41,12 @@ jobs:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
       packages: write # for uploading attestations.
+    if: startsWith(github.ref, 'refs/tags/v')
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
     with:
-      image: ${{ needs.release.outputs.image_url }}
-      digest: ${{ needs.release.outputs.image_digest }}
-      registry-username: fluxcdbot
+      image: ${{ needs.release.outputs.image-name }}
+      digest: ${{ needs.release.outputs.image-digest }}
+      registry-username: ${{ github.repository_owner == 'fluxcd' && 'fluxcdbot' || github.repository_owner }}
     secrets:
       registry-password: ${{ secrets.DOCKER_FLUXCD_PASSWORD }}
   ghcr-provenance:
@@ -54,10 +56,11 @@ jobs:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
       packages: write # for uploading attestations.
+    if: startsWith(github.ref, 'refs/tags/v')
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
     with:
-      image: ghcr.io/${{ needs.release.outputs.image_url }}
-      digest: ${{ needs.release.outputs.image_digest }}
-      registry-username: fluxcdbot
+      image: ghcr.io/${{ needs.release.outputs.image-name }}
+      digest: ${{ needs.release.outputs.image-digest }}
+      registry-username: fluxcdbot # not necessary for ghcr.io
     secrets:
-      registry-password: ${{ secrets.GHCR_TOKEN }}
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
