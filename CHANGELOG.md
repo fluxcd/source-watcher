@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.0.1
+
+**Release date:** 2025-09-26
+
+This patch release fixes the Deployment manifest for source-watcher
+adding `securityContext.fsGroup` to the Pod spec.
+
+Fixes:
+- Add `securityContext.fsGroup` to deployment
+  [#275](https://github.com/fluxcd/source-watcher/pull/275)
+
 ## 2.0.0
 
 **Release date:** 2025-09-15
