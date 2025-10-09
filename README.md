@@ -23,9 +23,10 @@ which allows Flux users to:
 
 ### Prerequisites
 
-- Flux v2.7.0 or later
-- source-watcher v2.0.0 or later
-- kustomize-controller & helm-controller with `--feature-gates=ExternalArtifact`
+- Flux v2.7.2 or later
+- A Kubernetes cluster bootstrapped with:
+  - `flux bootstrap git --components-extra=source-watcher` (production mode), or
+  - `flux install --components-extra=source-watcher` (dev mode)
 
 ### Example: Composing Multiple Sources
 
