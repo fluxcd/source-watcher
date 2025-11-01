@@ -13,10 +13,10 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.22.0
 	github.com/fluxcd/pkg/artifact v0.4.0
 	github.com/fluxcd/pkg/http/fetch v0.20.0
-	github.com/fluxcd/pkg/runtime v0.88.0
+	github.com/fluxcd/pkg/runtime v0.89.0
 	github.com/fluxcd/pkg/tar v0.15.0
 	github.com/fluxcd/pkg/testserver v0.13.0
-	github.com/fluxcd/source-controller/api v1.7.2
+	github.com/fluxcd/source-controller/api v1.7.3
 	github.com/fluxcd/source-watcher/api/v2 v2.0.0
 	github.com/onsi/gomega v1.38.2
 	github.com/opencontainers/go-digest v1.0.0
