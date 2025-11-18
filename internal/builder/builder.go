@@ -99,6 +99,11 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 	}
 	defer unlock()
 
+	// Resolve symlinks before archiving to ensure their content is included
+	if err := ResolveSymlinks(stagingDir); err != nil {
+		return nil, fmt.Errorf("failed to resolve symlinks in staging directory: %w", err)
+	}
+
 	// Create the artifact tarball from the staging dir.
 	if err := r.Storage.Archive(&artifact, stagingDir, gotkstorage.SourceIgnoreFilter(nil, nil)); err != nil {
 		return nil, fmt.Errorf("failed to create artifact: %w", err)
@@ -569,4 +574,250 @@ func MkdirTempAbs(dir, pattern string) (string, error) {
 		return "", fmt.Errorf("error evaluating symlink: %w", err)
 	}
 	return tmpDir, nil
+}
+
+// ResolveSymlinks recursively resolves symlinks in the given directory by replacing
+// them with copies of their target files/directories. This ensures that symlink
+// content is included in the archive, as the Archive function skips symlinks.
+// Symlinks pointing outside the root directory are skipped for security reasons.
+func ResolveSymlinks(rootDir string) error {
+	rootDir, err := filepath.Abs(rootDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// First pass: collect all symlinks
+	type symlinkInfo struct {
+		path   string
+		target string
+	}
+	var symlinks []symlinkInfo
+
+	err = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Use Lstat to check for symlinks
+		lstatInfo, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+
+		// Check if this is a symlink
+		if lstatInfo.Mode()&os.ModeSymlink != 0 {
+			// Resolve the symlink target
+			target, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("failed to read symlink %s: %w", path, err)
+			}
+
+			// Make target path absolute if it's relative
+			if !filepath.IsAbs(target) {
+				// Get the absolute path of the symlink's parent directory
+				parentDir, err := filepath.Abs(filepath.Dir(path))
+				if err != nil {
+					return fmt.Errorf("failed to get absolute path of parent directory: %w", err)
+				}
+				// For relative paths with .., we need to properly resolve them
+				// Process path components manually to handle .. correctly
+				parts := strings.Split(target, string(filepath.Separator))
+				resolved := parentDir
+				for _, part := range parts {
+					if part == "" || part == "." {
+						continue
+					}
+					if part == ".." {
+						resolved = filepath.Dir(resolved)
+					} else {
+						resolved = filepath.Join(resolved, part)
+					}
+				}
+				target = resolved
+			} else {
+				// Clean the absolute path to normalize ../
+				target = filepath.Clean(target)
+			}
+
+			// Security check: ensure target is within root directory
+			// Check: target must be an absolute path that starts with rootDir
+			if !strings.HasPrefix(target, rootDir+string(filepath.Separator)) && target != rootDir {
+				// Symlink points outside root directory - skip it
+				return nil
+			}
+
+			symlinks = append(symlinks, symlinkInfo{
+				path:   path,
+				target: target,
+			})
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Second pass: resolve symlinks (process in reverse order to handle nested symlinks)
+	for i := len(symlinks) - 1; i >= 0; i-- {
+		sym := symlinks[i]
+
+		// Check if target still exists
+		targetInfo, err := os.Lstat(sym.target)
+		if err != nil {
+			// Target doesn't exist - skip broken symlink
+			continue
+		}
+
+		// Skip self-referencing symlinks to avoid infinite loops
+		// Compare normalized paths to handle different path representations
+		symPathAbs, err := filepath.Abs(sym.path)
+		if err != nil {
+			continue
+		}
+		targetAbs, err := filepath.Abs(sym.target)
+		if err != nil {
+			continue
+		}
+		if symPathAbs == targetAbs {
+			// Self-referencing symlink - skip it
+			continue
+		}
+
+		// If target is itself a symlink, check if it points outside
+		// This handles chain symlinks that eventually point outside
+		if targetInfo.Mode()&os.ModeSymlink != 0 {
+			// Read the target of the target symlink
+			chainTarget, err := os.Readlink(sym.target)
+			if err == nil {
+				// Resolve chain target path
+				if !filepath.IsAbs(chainTarget) {
+					chainTarget = filepath.Clean(filepath.Join(filepath.Dir(sym.target), chainTarget))
+				}
+				chainTarget, err = filepath.Abs(chainTarget)
+				if err == nil {
+					// Check if chain target is outside root directory
+					if !strings.HasPrefix(chainTarget, rootDir+string(filepath.Separator)) && chainTarget != rootDir {
+						// Chain symlink points outside - skip the original symlink
+						continue
+					}
+					relPath, err := filepath.Rel(rootDir, chainTarget)
+					if err != nil || strings.HasPrefix(relPath, "..") {
+						// Chain symlink points outside - skip the original symlink
+						continue
+					}
+				}
+			}
+		}
+
+		// Remove the symlink
+		if err := os.Remove(sym.path); err != nil {
+			return fmt.Errorf("failed to remove symlink %s: %w", sym.path, err)
+		}
+
+		// Copy target to symlink location
+		if targetInfo.IsDir() {
+			// Copy directory recursively
+			if err := copyDir(sym.target, sym.path); err != nil {
+				return fmt.Errorf("failed to copy directory from %s to %s: %w", sym.target, sym.path, err)
+			}
+		} else {
+			// Copy file
+			if err := copyFile(sym.target, sym.path); err != nil {
+				return fmt.Errorf("failed to copy file from %s to %s: %w", sym.target, sym.path, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyFile copies a file from src to dst.
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = destFile.ReadFrom(sourceFile)
+	if err != nil {
+		return err
+	}
+
+	// Preserve file mode
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	return os.Chmod(dst, srcInfo.Mode())
+}
+
+// copyDir recursively copies a directory from src to dst.
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			// Check if it's a symlink
+			info, err := os.Lstat(srcPath)
+			if err != nil {
+				return err
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				// Resolve symlink recursively
+				target, err := os.Readlink(srcPath)
+				if err != nil {
+					return err
+				}
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(srcPath), target)
+				}
+				targetInfo, err := os.Lstat(target)
+				if err != nil {
+					continue // Skip broken symlink
+				}
+				if targetInfo.IsDir() {
+					if err := copyDir(target, dstPath); err != nil {
+						return err
+					}
+				} else {
+					if err := copyFile(target, dstPath); err != nil {
+						return err
+					}
+				}
+			} else {
+				if err := copyFile(srcPath, dstPath); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
 }

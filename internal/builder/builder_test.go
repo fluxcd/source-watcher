@@ -28,6 +28,7 @@ import (
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
+	"github.com/fluxcd/source-watcher/v2/internal/builder"
 )
 
 func TestBuild(t *testing.T) {
@@ -1038,4 +1039,266 @@ func TestBuildWithExcludes(t *testing.T) {
 			tt.validateFunc(t, artifact, workspaceDir)
 		})
 	}
+}
+
+// TestResolveSymlinks tests that symlinks are properly resolved and their content is included.
+func TestResolveSymlinks(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create a temporary directory structure with symlinks
+	tmpDir := t.TempDir()
+
+	// Create target directory with content
+	targetDir := filepath.Join(tmpDir, "library", "cozy-lib")
+	g.Expect(os.MkdirAll(targetDir, 0o750)).To(Succeed())
+
+	// Create a file in the target directory
+	targetFile := filepath.Join(targetDir, "Chart.yaml")
+	g.Expect(os.WriteFile(targetFile, []byte("name: cozy-lib\nversion: 1.0.0\n"), 0o600)).To(Succeed())
+
+	// Create a subdirectory with content
+	templatesDir := filepath.Join(targetDir, "templates")
+	g.Expect(os.MkdirAll(templatesDir, 0o750)).To(Succeed())
+	templateFile := filepath.Join(templatesDir, "deployment.yaml")
+	g.Expect(os.WriteFile(templateFile, []byte("apiVersion: apps/v1\n"), 0o600)).To(Succeed())
+
+	// Create source directory structure
+	sourceDir := filepath.Join(tmpDir, "apps", "tenant", "charts")
+	g.Expect(os.MkdirAll(sourceDir, 0o750)).To(Succeed())
+
+	// Create symlink pointing to target directory
+	symlinkPath := filepath.Join(sourceDir, "cozy-lib")
+	// Calculate the correct relative path from sourceDir to targetDir
+	relativeTarget, err := filepath.Rel(sourceDir, targetDir)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(os.Symlink(relativeTarget, symlinkPath)).To(Succeed())
+
+	// Create a regular file in source directory
+	regularFile := filepath.Join(sourceDir, "Chart.yaml")
+	g.Expect(os.WriteFile(regularFile, []byte("name: tenant\nversion: 1.0.0\n"), 0o600)).To(Succeed())
+
+	// Resolve symlinks - use tmpDir as root since symlink points to library/cozy-lib which is at tmpDir level
+	err = builder.ResolveSymlinks(tmpDir)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// Verify that the symlink is resolved (it should be a directory, not a symlink)
+	info, err := os.Lstat(symlinkPath)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(info.Mode()&os.ModeSymlink).To(BeZero(), "symlink should be resolved to a directory")
+	g.Expect(symlinkPath).To(BeADirectory())
+
+	// Verify that files from the symlink target are present
+	chartFile := filepath.Join(symlinkPath, "Chart.yaml")
+	g.Expect(chartFile).To(BeAnExistingFile())
+	content, err := os.ReadFile(chartFile)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(content)).To(ContainSubstring("name: cozy-lib"))
+
+	// Verify that subdirectories are included
+	templatesPath := filepath.Join(symlinkPath, "templates", "deployment.yaml")
+	g.Expect(templatesPath).To(BeAnExistingFile())
+
+	// Verify that regular files are still present
+	g.Expect(regularFile).To(BeAnExistingFile())
+}
+
+// TestResolveSymlinks_security tests that symlinks pointing outside the root directory
+// are properly blocked to prevent directory traversal attacks.
+func TestResolveSymlinks_security(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create a temporary directory structure simulating a real system
+	tmpDir := t.TempDir()
+
+	// Create repository root directory
+	repoRoot := filepath.Join(tmpDir, "repo")
+	g.Expect(os.MkdirAll(repoRoot, 0o750)).To(Succeed())
+
+	// Create a safe file inside the repo
+	safeFile := filepath.Join(repoRoot, "safe.txt")
+	g.Expect(os.WriteFile(safeFile, []byte("safe content"), 0o600)).To(Succeed())
+
+	// Create sensitive directories OUTSIDE the repo (simulating system directories)
+	outsideDir := filepath.Join(tmpDir, "sensitive")
+	g.Expect(os.MkdirAll(outsideDir, 0o750)).To(Succeed())
+
+	sensitiveFile := filepath.Join(outsideDir, "secret.txt")
+	g.Expect(os.WriteFile(sensitiveFile, []byte("SECRET_DATA"), 0o600)).To(Succeed())
+
+	// Create another sensitive directory at a different level
+	etcDir := filepath.Join(tmpDir, "etc")
+	g.Expect(os.MkdirAll(etcDir, 0o750)).To(Succeed())
+	passwdFile := filepath.Join(etcDir, "passwd")
+	g.Expect(os.WriteFile(passwdFile, []byte("root:x:0:0:root:/root:/bin/bash"), 0o600)).To(Succeed())
+
+	// Test case 1: Relative symlink pointing outside with ../
+	symlinkPath1 := filepath.Join(repoRoot, "malicious-link-relative")
+	relativeTarget1 := filepath.Join("..", "sensitive", "secret.txt")
+	g.Expect(os.Symlink(relativeTarget1, symlinkPath1)).To(Succeed())
+
+	// Test case 2: Multiple levels of ../
+	symlinkPath2 := filepath.Join(repoRoot, "malicious-link-deep")
+	relativeTarget2 := filepath.Join("..", "..", "etc", "passwd")
+	g.Expect(os.Symlink(relativeTarget2, symlinkPath2)).To(Succeed())
+
+	// Test case 3: Absolute symlink pointing outside
+	symlinkPath3 := filepath.Join(repoRoot, "malicious-link-absolute")
+	g.Expect(os.Symlink(sensitiveFile, symlinkPath3)).To(Succeed())
+
+	// Test case 4: Symlink pointing to parent directory
+	symlinkPath4 := filepath.Join(repoRoot, "malicious-link-parent")
+	g.Expect(os.Symlink("..", symlinkPath4)).To(Succeed())
+
+	// Test case 5: Symlink with absolute path to /tmp or other system paths
+	// (if running on Unix-like system)
+	if tmpBase := os.TempDir(); tmpBase != "" {
+		systemTmpFile := filepath.Join(tmpBase, "system-secret")
+		g.Expect(os.WriteFile(systemTmpFile, []byte("SYSTEM_SECRET"), 0o600)).To(Succeed())
+		defer os.Remove(systemTmpFile)
+
+		symlinkPath5 := filepath.Join(repoRoot, "malicious-link-system")
+		g.Expect(os.Symlink(systemTmpFile, symlinkPath5)).To(Succeed())
+	}
+
+	// Test case 6: Valid symlink pointing inside repo (should be allowed)
+	validSymlinkPath := filepath.Join(repoRoot, "valid-link")
+	g.Expect(os.Symlink("safe.txt", validSymlinkPath)).To(Succeed())
+
+	// Test case 7: Symlink pointing to subdirectory inside repo (should be allowed)
+	subDir := filepath.Join(repoRoot, "subdir")
+	g.Expect(os.MkdirAll(subDir, 0o750)).To(Succeed())
+	subFile := filepath.Join(subDir, "subfile.txt")
+	g.Expect(os.WriteFile(subFile, []byte("sub content"), 0o600)).To(Succeed())
+
+	validSymlinkPath2 := filepath.Join(repoRoot, "valid-link-subdir")
+	g.Expect(os.Symlink("subdir", validSymlinkPath2)).To(Succeed())
+
+	// Now resolve symlinks - malicious ones should be skipped
+	err := builder.ResolveSymlinks(repoRoot)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// Verify malicious symlinks are still symlinks (NOT resolved)
+	info1, err := os.Lstat(symlinkPath1)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(info1.Mode()&os.ModeSymlink).NotTo(BeZero(), "malicious relative symlink should NOT be resolved")
+
+	info2, err := os.Lstat(symlinkPath2)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(info2.Mode()&os.ModeSymlink).NotTo(BeZero(), "malicious deep relative symlink should NOT be resolved")
+
+	info3, err := os.Lstat(symlinkPath3)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(info3.Mode()&os.ModeSymlink).NotTo(BeZero(), "malicious absolute symlink should NOT be resolved")
+
+	info4, err := os.Lstat(symlinkPath4)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(info4.Mode()&os.ModeSymlink).NotTo(BeZero(), "malicious parent symlink should NOT be resolved")
+
+	// Verify sensitive files were NOT copied into repo
+	_, err = os.Stat(filepath.Join(repoRoot, "secret.txt"))
+	g.Expect(os.IsNotExist(err)).To(BeTrue(), "sensitive file should NOT be copied into repo")
+
+	_, err = os.Stat(filepath.Join(repoRoot, "passwd"))
+	g.Expect(os.IsNotExist(err)).To(BeTrue(), "system file should NOT be copied into repo")
+
+	// Verify valid symlinks ARE resolved
+	infoValid, err := os.Lstat(validSymlinkPath)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(infoValid.Mode()&os.ModeSymlink).To(BeZero(), "valid symlink should be resolved")
+	g.Expect(validSymlinkPath).To(BeARegularFile())
+	content, err := os.ReadFile(validSymlinkPath)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(content)).To(Equal("safe content"))
+
+	infoValid2, err := os.Lstat(validSymlinkPath2)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(infoValid2.Mode()&os.ModeSymlink).To(BeZero(), "valid subdirectory symlink should be resolved")
+	g.Expect(validSymlinkPath2).To(BeADirectory())
+
+	// Verify original sensitive files still exist outside repo (untouched)
+	g.Expect(sensitiveFile).To(BeAnExistingFile())
+	sensitiveContent, err := os.ReadFile(sensitiveFile)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(sensitiveContent)).To(Equal("SECRET_DATA"), "sensitive file should remain untouched")
+
+	g.Expect(passwdFile).To(BeAnExistingFile())
+	passwdContent, err := os.ReadFile(passwdFile)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(passwdContent)).To(ContainSubstring("root"), "system file should remain untouched")
+}
+
+// TestResolveSymlinks_security_edgeCases tests edge cases for symlink security,
+// including various path manipulation attempts.
+func TestResolveSymlinks_security_edgeCases(t *testing.T) {
+	g := NewWithT(t)
+
+	tmpDir := t.TempDir()
+	repoRoot := filepath.Join(tmpDir, "repo")
+	g.Expect(os.MkdirAll(repoRoot, 0o750)).To(Succeed())
+
+	// Create target outside repo
+	outsideTarget := filepath.Join(tmpDir, "outside", "target.txt")
+	g.Expect(os.MkdirAll(filepath.Dir(outsideTarget), 0o750)).To(Succeed())
+	g.Expect(os.WriteFile(outsideTarget, []byte("outside"), 0o600)).To(Succeed())
+
+	// Edge case 1: Symlink with mixed absolute/relative components
+	symlink1 := filepath.Join(repoRoot, "edge1")
+	// This creates a path that resolves outside but uses relative components
+	g.Expect(os.Symlink(filepath.Join("..", "outside", "target.txt"), symlink1)).To(Succeed())
+
+	// Edge case 2: Symlink pointing to root directory
+	symlink2 := filepath.Join(repoRoot, "edge2")
+	rootPath := filepath.VolumeName(tmpDir) + string(filepath.Separator)
+	if rootPath == "" {
+		// On Unix, try /etc
+		rootPath = "/etc"
+		if _, err := os.Stat(rootPath); os.IsNotExist(err) {
+			rootPath = tmpDir // Fallback if /etc doesn't exist
+		}
+	}
+	g.Expect(os.Symlink(rootPath, symlink2)).To(Succeed())
+
+	// Edge case 3: Symlink with null bytes (should be handled safely)
+	// Note: Go's filepath operations should handle this, but we test anyway
+	symlink3 := filepath.Join(repoRoot, "edge3")
+	g.Expect(os.Symlink("../outside/target.txt", symlink3)).To(Succeed())
+
+	// Edge case 4: Symlink pointing to itself (should not cause infinite loop)
+	symlink4 := filepath.Join(repoRoot, "edge4")
+	g.Expect(os.Symlink("edge4", symlink4)).To(Succeed())
+
+	// Edge case 5: Symlink chain that eventually points outside
+	chain1 := filepath.Join(repoRoot, "chain1")
+	chain2 := filepath.Join(repoRoot, "chain2")
+	g.Expect(os.Symlink("chain2", chain1)).To(Succeed())
+	g.Expect(os.Symlink("../outside/target.txt", chain2)).To(Succeed())
+
+	// Resolve symlinks
+	err := builder.ResolveSymlinks(repoRoot)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// All malicious symlinks should remain as symlinks
+	info1, _ := os.Lstat(symlink1)
+	g.Expect(info1.Mode()&os.ModeSymlink).NotTo(BeZero(), "edge case 1 should not be resolved")
+
+	info2, _ := os.Lstat(symlink2)
+	g.Expect(info2.Mode()&os.ModeSymlink).NotTo(BeZero(), "edge case 2 should not be resolved")
+
+	info3, _ := os.Lstat(symlink3)
+	g.Expect(info3.Mode()&os.ModeSymlink).NotTo(BeZero(), "edge case 3 should not be resolved")
+
+	// Self-referencing symlink should remain (or be handled safely)
+	info4, err := os.Lstat(symlink4)
+	if err == nil {
+		// If it exists, it should still be a symlink (not resolved to avoid loops)
+		g.Expect(info4.Mode()&os.ModeSymlink).NotTo(BeZero(), "self-referencing symlink should not be resolved")
+	}
+
+	// Chain symlinks should remain
+	infoChain1, _ := os.Lstat(chain1)
+	g.Expect(infoChain1.Mode()&os.ModeSymlink).NotTo(BeZero(), "chain symlink should not be resolved")
+
+	// Verify outside file was not copied
+	_, err = os.Stat(filepath.Join(repoRoot, "target.txt"))
+	g.Expect(os.IsNotExist(err)).To(BeTrue(), "outside file should not be copied")
 }
