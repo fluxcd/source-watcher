@@ -16,7 +16,7 @@ require (
 	github.com/fluxcd/pkg/runtime v0.90.0
 	github.com/fluxcd/pkg/tar v0.16.0
 	github.com/fluxcd/pkg/testserver v0.13.0
-	github.com/fluxcd/source-controller/api v1.7.2
+	github.com/fluxcd/source-controller/api v1.7.3
 	github.com/fluxcd/source-watcher/api/v2 v2.0.0
 	github.com/onsi/gomega v1.38.2
 	github.com/opencontainers/go-digest v1.0.0
