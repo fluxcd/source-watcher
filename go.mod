@@ -21,7 +21,7 @@ require (
 	github.com/onsi/gomega v1.38.2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/pflag v1.0.10
-	golang.org/x/mod v0.29.0
+	golang.org/x/mod v0.30.0
 	k8s.io/api v0.34.2
 	k8s.io/apimachinery v0.34.2
 	k8s.io/client-go v0.34.2
