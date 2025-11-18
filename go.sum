@@ -87,8 +87,8 @@ github.com/fluxcd/pkg/testserver v0.13.0 h1:xEpBcEYtD7bwvZ+i0ZmChxKkDo/wfQEV3xmn
 github.com/fluxcd/pkg/testserver v0.13.0/go.mod h1:akRYv3FLQUsme15na9ihECRG6hBuqni4XEY9W8kzs8E=
 github.com/fluxcd/pkg/version v0.11.0 h1:gcAXw/HZ4XX9v+2xhO+NWf/hAArYKgSmzqT9Yrx4VjY=
 github.com/fluxcd/pkg/version v0.11.0/go.mod h1:XsgsKJVmVFWnG3DE19YBM0EeWVuG4BPAHpAmOe6GFmo=
-github.com/fluxcd/source-controller/api v1.7.2 h1:/lg/xoyRjxwdhHKqjTxQS2o1cp+DMKJ8W4rpm+ZLemQ=
-github.com/fluxcd/source-controller/api v1.7.2/go.mod h1:2JtCeUVpl0aqKImS19jUz9EEnMdzgqNWHkllrIhV004=
+github.com/fluxcd/source-controller/api v1.7.3 h1:JCDbaJqAbQtjCt3Ijsm/6nZf+SZiby3/R6lVZ1gDllE=
+github.com/fluxcd/source-controller/api v1.7.3/go.mod h1:2JtCeUVpl0aqKImS19jUz9EEnMdzgqNWHkllrIhV004=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
