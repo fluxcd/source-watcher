@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.0.3
+
+**Release date:** 2025-11-19
+
+This patch release comes with various dependency updates.
+
+Improvements:
+- Upgrade k8s to 1.34.2 and c-r to 0.22.4
+  [#292](https://github.com/fluxcd/source-watcher/pull/292)
+
 ## 2.0.2
 
 **Release date:** 2025-10-08
