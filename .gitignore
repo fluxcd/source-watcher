@@ -21,6 +21,7 @@ config/crd/bases/ocirepositories.yaml
 config/crd/bases/gitrepositories.yaml
 config/crd/bases/buckets.yaml
 config/crd/bases/externalartifacts.yaml
+config/crd/bases/helmcharts.yaml
 
 # Release manifests generated at build time
 config/release/

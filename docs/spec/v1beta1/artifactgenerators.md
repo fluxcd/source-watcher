@@ -4,7 +4,7 @@
 
 The ArtifactGenerator is an extension of Flux APIs that allows source composition and decomposition.
 It enables the generation of [ExternalArtifacts][externalartifact] from multiple sources
-([GitRepositories][gitrepository], [OCIRepositories][ocirepository] and [Buckets][bucket])
+([GitRepositories][gitrepository], [OCIRepositories][ocirepository], [Buckets][bucket] and [HelmChart][helmchart])
 or the splitting of a single source into multiple artifacts.
 
 ## Source Composition Example
@@ -203,7 +203,7 @@ for artifact generation. Each source must specify:
 - `alias`: A unique identifier used to reference the source in copy operations.
    Alias names must be unique within the same ArtifactGenerator and can only contain
    alphanumeric characters, dashes and underscores.
-- `kind`: The type of Flux source resource (`GitRepository`, `OCIRepository`, or `Bucket`)
+- `kind`: The type of Flux source resource (`GitRepository`, `OCIRepository`, `Bucket` or `HelmChart`)
 - `name`: The name of the source resource
 - `namespace` (optional): The namespace of the source resource if different from the ArtifactGenerator namespace
 
@@ -462,3 +462,4 @@ the ArtifactGenerator name and namespace.
 [gitrepository]: https://github.com/fluxcd/source-controller/blob/main/docs/spec/v1/gitrepositories.md
 [ocirepository]: https://github.com/fluxcd/source-controller/blob/main/docs/spec/v1/ocirepositories.md
 [bucket]: https://github.com/fluxcd/source-controller/blob/main/docs/spec/v1/buckets.md
+[helmchart]: https://github.com/fluxcd/source-controller/blob/main/docs/spec/v1/helmcharts.md
