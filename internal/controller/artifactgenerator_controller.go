@@ -308,6 +308,16 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 				return nil, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 			}
 			source = &bucket
+		case sourcev1.HelmChartKind:
+			var chart sourcev1.HelmChart
+			err := r.Get(ctx, namespacedName, &chart)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					return nil, err
+				}
+				return nil, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+			}
+			source = &chart
 		default:
 			return nil, fmt.Errorf("source `%s` kind '%s' not supported",
 				src.Name, src.Kind)
