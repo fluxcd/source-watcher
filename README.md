@@ -14,7 +14,7 @@ that extends Flux with advanced source composition and decomposition patterns.
 The source-watcher controller implements the [ArtifactGenerator](docs/README.md) API,
 which allows Flux users to:
 
-- 🔗 **Compose** multiple Flux sources (GitRepository, OCIRepository, Bucket) into a single deployable artifact
+- 🔗 **Compose** multiple Flux sources (GitRepository, OCIRepository, Bucket, HelmChart) into a single deployable artifact
 - 📦 **Decompose** monorepos into multiple independent artifacts with separate deployment lifecycles
 - 🎯 **Optimize** reconciliation by only triggering updates when specific paths change
 - 🏗️ **Structure** complex deployments from distributed sources maintained by different teams

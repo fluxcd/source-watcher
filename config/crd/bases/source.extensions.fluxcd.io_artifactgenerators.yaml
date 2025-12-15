@@ -158,6 +158,7 @@ spec:
                       - Bucket
                       - GitRepository
                       - OCIRepository
+                      - HelmChart
                       type: string
                     name:
                       description: Name of the source.

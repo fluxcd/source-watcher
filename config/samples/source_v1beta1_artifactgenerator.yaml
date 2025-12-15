@@ -4,7 +4,7 @@ metadata:
   name: podinfo
 spec:
   # Sources is a list of references to Flux source-controller resources
-  # (GitRepository, OCIRepository and Bucket) that will be
+  # (GitRepository, OCIRepository, Bucket and HelmChart) that will be
   # used to generate ExternalArtifact resources.
   sources:
     - alias: chart
