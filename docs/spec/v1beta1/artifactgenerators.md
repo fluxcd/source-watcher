@@ -4,7 +4,7 @@
 
 The ArtifactGenerator is an extension of Flux APIs that allows source composition and decomposition.
 It enables the generation of [ExternalArtifacts][externalartifact] from multiple sources
-([GitRepositories][gitrepository], [OCIRepositories][ocirepository], [Buckets][bucket] and [HelmChart][helmchart])
+([GitRepositories][gitrepository], [OCIRepositories][ocirepository], [Buckets][bucket], [HelmCharts][helmchart] and [ExternalArtifacts][externalartifact])
 or the splitting of a single source into multiple artifacts.
 
 ## Source Composition Example
@@ -203,7 +203,7 @@ for artifact generation. Each source must specify:
 - `alias`: A unique identifier used to reference the source in copy operations.
    Alias names must be unique within the same ArtifactGenerator and can only contain
    alphanumeric characters, dashes and underscores.
-- `kind`: The type of Flux source resource (`GitRepository`, `OCIRepository`, `Bucket` or `HelmChart`)
+- `kind`: The type of Flux source resource (`GitRepository`, `OCIRepository`, `Bucket`, `HelmChart`, or `ExternalArtifact`)
 - `name`: The name of the source resource
 - `namespace` (optional): The namespace of the source resource if different from the ArtifactGenerator namespace
 
