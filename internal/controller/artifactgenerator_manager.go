@@ -85,6 +85,11 @@ func (r *ArtifactGeneratorReconciler) SetupWithManager(ctx context.Context,
 			handler.EnqueueRequestsFromMapFunc(r.requestsForSourceChange),
 			builder.WithPredicates(sourceChangePredicate),
 		).
+		Watches(
+			&sourcev1.ExternalArtifact{},
+			handler.EnqueueRequestsFromMapFunc(r.requestsForSourceChange),
+			builder.WithPredicates(sourceChangePredicate),
+		).
 		WithOptions(controller.Options{
 			RateLimiter: opts.RateLimiter,
 		}).

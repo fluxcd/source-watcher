@@ -83,7 +83,7 @@ type SourceReference struct {
 	Namespace string `json:"namespace,omitempty"`
 
 	// Kind of the source.
-	// +kubebuilder:validation:Enum=Bucket;GitRepository;OCIRepository;HelmChart
+	// +kubebuilder:validation:Enum=Bucket;GitRepository;OCIRepository;HelmChart;ExternalArtifact
 	// +required
 	Kind string `json:"kind"`
 }

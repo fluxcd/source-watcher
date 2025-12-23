@@ -159,6 +159,7 @@ spec:
                       - GitRepository
                       - OCIRepository
                       - HelmChart
+                      - ExternalArtifact
                       type: string
                     name:
                       description: Name of the source.
