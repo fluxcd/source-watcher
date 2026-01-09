@@ -37,6 +37,7 @@ const (
 	SourceFetchFailedReason          = "SourceFetchFailed"
 	OverwriteStrategy                = "Overwrite"
 	MergeStrategy                    = "Merge"
+	ExtractStrategy                  = "Extract"
 	EnabledValue                     = "enabled"
 	DisabledValue                    = "disabled"
 )
@@ -149,9 +150,12 @@ type CopyOperation struct {
 	// Strategy specifies the copy strategy to use.
 	// 'Overwrite' will overwrite existing files in the destination.
 	// 'Merge' is for merging YAML files using Helm values merge strategy.
+	// 'Extract' is for extracting the contents of tarball archives (.tar.gz, .tgz)
+	// When using glob patterns, non-tarball files are silently skipped. For single file sources,
+	// the file must be a tarball or an error is returned. Directories are not supported.
 	// If not specified, defaults to 'Overwrite'.
 	// +optional
-	// +kubebuilder:validation:Enum=Overwrite;Merge
+	// +kubebuilder:validation:Enum=Overwrite;Merge;Extract
 	Strategy string `json:"strategy,omitempty"`
 }
 

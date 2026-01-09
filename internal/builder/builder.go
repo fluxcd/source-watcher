@@ -127,6 +127,18 @@ func applyCopyOperations(ctx context.Context,
 	return nil
 }
 
+// If the copy operation uses the Extract strategy, it uses doublestar.Glob as we do not need to walk the whole tree
+// otherwise we us std fs.Glob
+func getGlobMatchingEntries(op swapi.CopyOperation, srcRoot *os.Root, srcPattern string) ([]string, error) {
+	if op.Strategy == swapi.ExtractStrategy {
+		// Use doublestar.Glob for recursive and advanced glob patterns (e.g., **/*.tar.gz)
+		return doublestar.Glob(srcRoot.FS(), srcPattern)
+	} else {
+		// Use fs.Glob for simple, non-recursive glob patterns
+		return fs.Glob(srcRoot.FS(), srcPattern)
+	}
+}
+
 // applyCopyOperation applies a single copy operation from the sources to the staging directory.
 // This function implements cp-like semantics by first analyzing the source pattern to determine
 // if it's a glob, direct file/directory reference, or wildcard pattern, then making copy decisions
@@ -175,11 +187,11 @@ func applyCopyOperation(ctx context.Context,
 
 	if !isGlobPattern {
 		// Direct path reference - check what it actually is first (cp-like behavior)
-		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash)
+		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, stagingDir, destRelPath, destEndsWithSlash)
 	}
 
-	// Glob pattern - find all matches and copy each
-	matches, err := fs.Glob(srcRoot.FS(), srcPattern)
+	matches, err := getGlobMatchingEntries(op, srcRoot, srcPattern)
+
 	if err != nil {
 		return fmt.Errorf("invalid glob pattern '%s': %w", srcPattern, err)
 	}
@@ -188,12 +200,19 @@ func applyCopyOperation(ctx context.Context,
 		return fmt.Errorf("no files match pattern '%s' in source '%s'", srcPattern, srcAlias)
 	}
 
-	// Filter out excluded files
+	// Filter out excluded files and special directory entries
 	filteredMatches := make([]string, 0, len(matches))
 	for _, match := range matches {
-		if !shouldExclude(match, op.Exclude) {
-			filteredMatches = append(filteredMatches, match)
+		// Skip current directory and parent directory references
+		// doublestar.Glob returns "." for patterns like "**" which would
+		// cause the entire source to be copied, bypassing per-file strategies
+		if match == "." || match == ".." {
+			continue
 		}
+		if shouldExclude(match, op.Exclude) {
+			continue
+		}
+		filteredMatches = append(filteredMatches, match)
 	}
 
 	if len(filteredMatches) == 0 {
@@ -206,10 +225,22 @@ func applyCopyOperation(ctx context.Context,
 			return err
 		}
 
-		// Calculate destination path based on glob pattern type
-		destFile := calculateGlobDestination(srcPattern, match, destRelPath)
-		if err := copyFileWithRoots(ctx, op, srcRoot, match, stagingRoot, destFile); err != nil {
-			return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
+		// Handle Extract strategy for tarballs
+		if op.Strategy == swapi.ExtractStrategy {
+			if !isTarball(match) {
+				// Ignore files that are not tarball archives and directories
+				continue
+			}
+			if err := extractTarball(ctx, srcRoot, match, stagingDir, destRelPath); err != nil {
+				return fmt.Errorf("failed to extract tarball '%s' to '%s': %w", match, destRelPath, err)
+			}
+		} else {
+			// Calculate destination path based on glob pattern type
+			destFile := calculateGlobDestination(srcPattern, match, destRelPath)
+
+			if err := copyFileWithRoots(ctx, op, srcRoot, match, stagingRoot, destFile); err != nil {
+				return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
+			}
 		}
 	}
 
@@ -223,6 +254,7 @@ func applySingleSourceCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
+	stagingDir string,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Clean the source path to handle trailing slashes
@@ -238,10 +270,14 @@ func applySingleSourceCopy(ctx context.Context,
 	}
 
 	if srcInfo.IsDir() {
+		// Extract strategy is not supported for directories
+		if op.Strategy == swapi.ExtractStrategy {
+			return fmt.Errorf("extract strategy is not supported for directories, got '%s'", srcPath)
+		}
 		return applySingleDirectoryCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath)
-	} else {
-		return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash)
 	}
+
+	return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, stagingDir, destPath, destEndsWithSlash)
 }
 
 // applySingleFileCopy handles copying a single file using cp-like semantics:
@@ -252,12 +288,22 @@ func applySingleFileCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
+	stagingDir string,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Check if the file should be excluded
 	if shouldExclude(srcPath, op.Exclude) {
 		return nil // Skip excluded file
 	}
+
+	// Handle Extract strategy for tarballs
+	if op.Strategy == swapi.ExtractStrategy {
+		if !isTarball(srcPath) {
+			return fmt.Errorf("extract strategy requires tarball file (.tar.gz or .tgz), got '%s'", srcPath)
+		}
+		return extractTarball(ctx, srcRoot, srcPath, stagingDir, destPath)
+	}
+
 	var finalDestPath string
 
 	if destEndsWithSlash {
@@ -303,6 +349,7 @@ func containsGlobChars(path string) bool {
 // - dir/** patterns strip the directory prefix (like cp -r dir/** dest/)
 // - other patterns preserve the full match path
 func calculateGlobDestination(pattern, match, destPath string) string {
+
 	// Check if pattern ends with /** (recursive contents pattern)
 	if strings.HasSuffix(pattern, "/**") {
 		// Extract the directory prefix from pattern (everything before /**)
@@ -545,10 +592,19 @@ func shouldExclude(filePath string, excludePatterns []string) bool {
 		return false
 	}
 
+	fileName := filepath.Base(filePath)
+
 	for _, pattern := range excludePatterns {
 		// We validate the patterns when parsing the copy operation,
 		// so it's safe to use MatchUnvalidated here.
 		if doublestar.MatchUnvalidated(pattern, filePath) {
+			return true
+		}
+		// For simple patterns without path separators (e.g., "*.md"),
+		// also match against just the filename. This provides a more
+		// intuitive user experience where "*.md" excludes all markdown
+		// files regardless of their directory depth.
+		if !strings.Contains(pattern, "/") && doublestar.MatchUnvalidated(pattern, fileName) {
 			return true
 		}
 	}

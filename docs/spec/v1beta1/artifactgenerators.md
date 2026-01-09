@@ -268,8 +268,8 @@ Each copy operation specifies how to copy files from sources into the generated 
   the root of the generated artifact and `path` is the relative path to a file or directory.
 - `exclude` (optional): A list of glob patterns to filter out from the source selection.
   Any file matched by `from` that also matches an exclude pattern will be ignored.
-- `strategy` (optional): Defines how to handle existing files at the destination, 
-  either `Overwrite` (default) or `Merge` (for YAML files only).
+- `strategy` (optional): Defines how to handle files during copy operations:
+  `Overwrite` (default), `Merge` (for YAML files), or `Extract` (for tarball archives).
 
 Copy operations use `cp`-like semantics:
 
@@ -326,6 +326,35 @@ Example of copy with `Merge` strategy:
 
 **Note** that the merge strategy will replace _arrays_ entirely, the behavior is
 identical to how Helm merges `values.yaml` files when using multiple `--values` flags.
+
+##### Extract Strategy
+
+The `Extract` strategy is used for extracting the contents of tarball archives (`.tar.gz`, `.tgz`)
+built with `flux build artifact` or `helm package`. The tarball contents are extracted
+to the destination while preserving their internal directory structure.
+
+Example of copy with `Extract` strategy:
+
+```yaml
+# Extract a Helm chart tarball built with `helm package`
+- from: "@oci/podinfo-6.7.0.tgz"
+  to: "@artifact/"
+  strategy: Extract
+
+# Extract multiple tarballs using glob patterns
+- from: "@source/charts/*.tgz"
+  to: "@artifact/charts/"
+  strategy: Extract
+
+# Extract tarballs recursively from nested directories
+- from: "@source/releases/**/*.tgz"
+  to: "@artifact/"
+  strategy: Extract
+```
+
+**Note** that when using glob patterns (including recursive `**` patterns) with the `Extract`
+strategy, non-tarball files are silently skipped. For single file sources, the file must have
+a `.tar.gz` or `.tgz` extension. Directories are not supported with this strategy.
 
 ## Working with ArtifactGenerators
 
