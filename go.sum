@@ -77,8 +77,8 @@ github.com/fluxcd/pkg/lockedfile v0.7.0 h1:tmzW2GeMGuJMiCcVloXVd1vKZ92anm9WGkRgO
 github.com/fluxcd/pkg/lockedfile v0.7.0/go.mod h1:AzCV/h1N3hi/KtUDUCUgS8hl1+a1y+I6pmRo25dxdK0=
 github.com/fluxcd/pkg/oci v0.58.0 h1:T5rBq+4uUHyMF9EUAlb3Wffa/yrYrVm97NO21p607Sg=
 github.com/fluxcd/pkg/oci v0.58.0/go.mod h1:hKX3KlqMtMHeGgR/LmReNwIgTHIidR0Qh7eOoffZjvc=
-github.com/fluxcd/pkg/runtime v0.90.0 h1:IONDsN9npJdWqbSAfsI8j10sXpgaLd6ywycKwp35Wwo=
-github.com/fluxcd/pkg/runtime v0.90.0/go.mod h1:D/gUsaSpyw6Od2QEL7MELi5m+oUmwokuxUVZ+vKQxdo=
+github.com/fluxcd/pkg/runtime v0.92.0 h1:FqelIv8L8TPCNnuF4cc7c/43P2p6aDT7FRDuZY6/kB8=
+github.com/fluxcd/pkg/runtime v0.92.0/go.mod h1:D/gUsaSpyw6Od2QEL7MELi5m+oUmwokuxUVZ+vKQxdo=
 github.com/fluxcd/pkg/sourceignore v0.15.0 h1:tB30fuk4jlB3UGlR7ppJguZ3zaJh1iwuTCEufs91jSM=
 github.com/fluxcd/pkg/sourceignore v0.15.0/go.mod h1:mZ9X6gNtNkq9ZsD35LebEYjePc7DRvB2JdowMNoj6IU=
 github.com/fluxcd/pkg/tar v0.16.0 h1:P7hR2FjLBuI9AIndRqrZaO7VYFbbBzbYMBsLe2hh7fI=
@@ -87,8 +87,8 @@ github.com/fluxcd/pkg/testserver v0.13.0 h1:xEpBcEYtD7bwvZ+i0ZmChxKkDo/wfQEV3xmn
 github.com/fluxcd/pkg/testserver v0.13.0/go.mod h1:akRYv3FLQUsme15na9ihECRG6hBuqni4XEY9W8kzs8E=
 github.com/fluxcd/pkg/version v0.11.0 h1:gcAXw/HZ4XX9v+2xhO+NWf/hAArYKgSmzqT9Yrx4VjY=
 github.com/fluxcd/pkg/version v0.11.0/go.mod h1:XsgsKJVmVFWnG3DE19YBM0EeWVuG4BPAHpAmOe6GFmo=
-github.com/fluxcd/source-controller/api v1.7.2 h1:/lg/xoyRjxwdhHKqjTxQS2o1cp+DMKJ8W4rpm+ZLemQ=
-github.com/fluxcd/source-controller/api v1.7.2/go.mod h1:2JtCeUVpl0aqKImS19jUz9EEnMdzgqNWHkllrIhV004=
+github.com/fluxcd/source-controller/api v1.7.4 h1:+EOVnRA9LmLxOx7J273l7IOEU39m+Slt/nQGBy69ygs=
+github.com/fluxcd/source-controller/api v1.7.4/go.mod h1:ruf49LEgZRBfcP+eshl2n9SX1MfHayCcViAIGnZcaDY=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
