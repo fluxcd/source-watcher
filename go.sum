@@ -65,6 +65,8 @@ github.com/fluxcd/cli-utils v0.37.1-flux.1 h1:WnG2mHxCPZMj/soIq/S/1zvbrGCJN3GJGb
 github.com/fluxcd/cli-utils v0.37.1-flux.1/go.mod h1:aND5wX3LuTFtB7eUT7vsWr8mmxRVSPR2Wkvbn0SqPfw=
 github.com/fluxcd/pkg/apis/acl v0.9.0 h1:wBpgsKT+jcyZEcM//OmZr9RiF8klL3ebrDp2u2ThsnA=
 github.com/fluxcd/pkg/apis/acl v0.9.0/go.mod h1:TttNS+gocsGLwnvmgVi3/Yscwqrjc17+vhgYfqkfrV4=
+github.com/fluxcd/pkg/apis/event v0.22.0 h1:nCW0TnneMnscSnj9NlaSKcvyC+436MbY1GyKn/4YnII=
+github.com/fluxcd/pkg/apis/event v0.22.0/go.mod h1:Hoi4DejaNKVahGkRXqGBjT9h1aKmhc7RCYcsgoTieqc=
 github.com/fluxcd/pkg/apis/meta v1.25.0 h1:fmZgMoe7yITGfhFqdOs7w2GOu3Y/2Vvz4+4p/eay3eA=
 github.com/fluxcd/pkg/apis/meta v1.25.0/go.mod h1:1D92RqAet0/n/cH5S0khBXweirHWkw9rCO0V4NCY6xc=
 github.com/fluxcd/pkg/artifact v0.7.0 h1:gACHm8Xn8K9RcZ+TuJKCYf3Av3Le3iBW7tpnxVDuHmw=
