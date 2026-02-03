@@ -49,6 +49,7 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/fluxcd/cli-utils v0.37.1-flux.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
+	github.com/fluxcd/pkg/apis/event v0.22.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.7.0 // indirect
 	github.com/fluxcd/pkg/oci v0.59.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.16.0 // indirect
