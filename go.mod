@@ -10,6 +10,7 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.9.2
+	github.com/fluxcd/pkg/apis/event v0.22.0
 	github.com/fluxcd/pkg/apis/meta v1.25.0
 	github.com/fluxcd/pkg/artifact v0.7.0
 	github.com/fluxcd/pkg/http/fetch v0.22.0
@@ -49,7 +50,6 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/fluxcd/cli-utils v0.37.1-flux.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
-	github.com/fluxcd/pkg/apis/event v0.22.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.7.0 // indirect
 	github.com/fluxcd/pkg/oci v0.59.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.16.0 // indirect
