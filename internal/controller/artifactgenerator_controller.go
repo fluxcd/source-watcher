@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	eventv1 "github.com/fluxcd/pkg/apis/event/v1beta1"
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkstroage "github.com/fluxcd/pkg/artifact/storage"
 	gotkfetch "github.com/fluxcd/pkg/http/fetch"
@@ -102,7 +103,7 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Pause reconciliation if the object has the reconcile annotation set to 'disabled'.
 	if obj.IsDisabled() {
 		log.Error(errors.New("can't reconcile"), msgReconciliationDisabled)
-		r.Event(obj, corev1.EventTypeWarning, swapi.ReconciliationDisabledReason, msgReconciliationDisabled)
+		r.Event(obj, eventv1.EventTypeTrace, swapi.ReconciliationDisabledReason, msgReconciliationDisabled)
 		return ctrl.Result{}, nil
 	}
 
@@ -120,6 +121,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	patcher *gotkpatch.SerialPatcher) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	oldObj := obj.DeepCopy()
 
 	// Create a temporary directory to fetch sources and build artifacts.
 	tmpDir, err := builder.MkdirTempAbs("", "ag-")
@@ -157,7 +159,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	if !hasDrifted {
 		msg := fmt.Sprintf("No drift detected, %d artifact(s) up to date", len(obj.Status.Inventory))
 		log.Info(msg)
-		r.Event(obj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
+		r.Event(obj, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, msg)
 		return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
 	}
 
@@ -252,9 +254,28 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		gotkmeta.ReadyCondition,
 		gotkmeta.SucceededReason,
 		"%s", msg)
-	r.Event(obj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
+	r.Event(obj, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, msg)
+
+	r.notify(oldObj, obj, eaRefs)
 
 	return ctrl.Result{RequeueAfter: gotkjitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
+}
+
+// notify emits notification related to the result of reconciliation. It will only send events if
+// there is a least one external artifact update
+func (r *ArtifactGeneratorReconciler) notify(oldObj, newObj *swapi.ArtifactGenerator, eaRefs []swapi.ExternalArtifactReference) {
+	eaChanged := make([]string, 0)
+
+	for _, eaRef := range eaRefs {
+		if !oldObj.HasArtifactInInventory(eaRef.Name, eaRef.Namespace, eaRef.Digest) {
+			eaChanged = append(eaChanged, fmt.Sprintf("%s/%s (%s)", eaRef.Namespace, eaRef.Name, eaRef.Digest))
+		}
+	}
+
+	if len(eaChanged) > 0 {
+		msg := fmt.Sprintf("external artifacts reconciled: %s", strings.Join(eaChanged, "\n"))
+		r.Event(newObj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
+	}
 }
 
 // observeSources retrieves the current state of sources,
@@ -464,7 +485,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		msg := fmt.Sprintf("%s/%s/%s reconciled with revision %s",
 			ea.Kind, ea.Namespace, ea.Name, artifact.Revision)
 		log.Info(msg)
-		r.Event(obj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
+		r.Event(obj, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, msg)
 	}
 
 	return &swapi.ExternalArtifactReference{

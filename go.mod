@@ -10,6 +10,7 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.9.2
+	github.com/fluxcd/pkg/apis/event v0.22.0
 	github.com/fluxcd/pkg/apis/meta v1.25.0
 	github.com/fluxcd/pkg/artifact v0.7.0
 	github.com/fluxcd/pkg/http/fetch v0.22.0
