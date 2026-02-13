@@ -61,6 +61,7 @@ type ArtifactGeneratorReconciler struct {
 	ArtifactFetchRetries      int
 	DependencyRequeueInterval time.Duration
 	NoCrossNamespaceRefs      bool
+	DirectSourceFetch         bool
 }
 
 // +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators,verbs=get;list;watch;create;update;patchStatus;delete
@@ -286,6 +287,12 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 	// Map of source alias to observed state.
 	observedSources := make(map[string]swapi.ObservedSource)
 
+	// Use APIReader to bypass the cache when DirectSourceFetch is enabled.
+	var reader client.Reader = r.Client
+	if r.DirectSourceFetch {
+		reader = r.APIReader
+	}
+
 	// Get the source objects referenced in the ArtifactGenerator spec.
 	for _, src := range obj.Spec.Sources {
 		namespacedName := client.ObjectKey{
@@ -301,7 +308,7 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 		switch src.Kind {
 		case sourcev1.OCIRepositoryKind:
 			var repository sourcev1.OCIRepository
-			err := r.Get(ctx, namespacedName, &repository)
+			err := reader.Get(ctx, namespacedName, &repository)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil, err
@@ -311,7 +318,7 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 			source = &repository
 		case sourcev1.GitRepositoryKind:
 			var repository sourcev1.GitRepository
-			err := r.Get(ctx, namespacedName, &repository)
+			err := reader.Get(ctx, namespacedName, &repository)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil, err
@@ -321,7 +328,7 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 			source = &repository
 		case sourcev1.BucketKind:
 			var bucket sourcev1.Bucket
-			err := r.Get(ctx, namespacedName, &bucket)
+			err := reader.Get(ctx, namespacedName, &bucket)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil, err
@@ -331,7 +338,7 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 			source = &bucket
 		case sourcev1.HelmChartKind:
 			var chart sourcev1.HelmChart
-			err := r.Get(ctx, namespacedName, &chart)
+			err := reader.Get(ctx, namespacedName, &chart)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil, err
@@ -340,15 +347,15 @@ func (r *ArtifactGeneratorReconciler) observeSources(ctx context.Context,
 			}
 			source = &chart
 		case sourcev1.ExternalArtifactKind:
-			var chart sourcev1.ExternalArtifact
-			err := r.Get(ctx, namespacedName, &chart)
+			var ea sourcev1.ExternalArtifact
+			err := reader.Get(ctx, namespacedName, &ea)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil, err
 				}
 				return nil, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 			}
-			source = &chart
+			source = &ea
 		default:
 			return nil, fmt.Errorf("source `%s` kind '%s' not supported",
 				src.Name, src.Kind)
