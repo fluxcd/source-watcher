@@ -53,6 +53,7 @@ import (
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 	"github.com/fluxcd/source-watcher/v2/internal/controller"
+	"github.com/fluxcd/source-watcher/v2/internal/features"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -119,6 +120,11 @@ func main() {
 
 	ctrlruntime.SetLogger(gotklogger.NewLogger(logOptions))
 
+	if err := featureGates.WithLogger(setupLog).SupportedFeatures(features.FeatureGates()); err != nil {
+		setupLog.Error(err, "unable to load feature gates")
+		os.Exit(1)
+	}
+
 	digestAlgo, err := gotkdigest.AlgorithmForName(artifactOptions.ArtifactDigestAlgo)
 	if err != nil {
 		setupLog.Error(err, "unable to configure canonical digest algorithm")
@@ -182,6 +188,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	directSourceFetch, err := features.Enabled(gotkctrl.FeatureGateDirectSourceFetch)
+	if err != nil {
+		setupLog.Error(err, "unable to check feature gate "+gotkctrl.FeatureGateDirectSourceFetch)
+		os.Exit(1)
+	}
+	if directSourceFetch {
+		setupLog.Info("DirectSourceFetch feature gate is enabled, sources will be fetched directly from the API server bypassing the cache")
+	}
+
 	// Note that the liveness check will pass beyond this point, but the readiness
 	// check will continue to fail until this controller instance is elected leader.
 	gotkprobes.SetupChecks(mgr, setupLog)
@@ -198,6 +213,7 @@ func main() {
 		Storage:                   artifactStorage,
 		ArtifactFetchRetries:      httpRetry,
 		DependencyRequeueInterval: requeueDependency,
+		DirectSourceFetch:         directSourceFetch,
 		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
 	}).SetupWithManager(ctx, mgr, controller.ArtifactGeneratorReconcilerOptions{
 		RateLimiter: gotkctrl.GetRateLimiter(rateLimiterOptions),
