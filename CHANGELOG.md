@@ -2,6 +2,45 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.1.0
+
+**Release date:** 2026-02-17
+
+This minor release comes with new ArtifactGenerator sources and various
+improvements.
+
+### ArtifactGenerator
+
+The `ArtifactGenerator` now supports `HelmChart` and `ExternalArtifact`
+as source kinds, and copy operations have been extended with tarball
+extraction capabilities.
+
+A `DirectSourceFetch` feature gate has been added to bypass cache for
+source objects.
+
+The reconciler now emits GitOps Toolkit events for artifact changes.
+
+### General updates
+
+In addition, the Kubernetes dependencies have been updated to v1.35.0 and
+the controller is now built with Go 1.26.
+
+Improvements:
+- Add HelmChart support
+  [#297](https://github.com/fluxcd/source-watcher/pull/297)
+- Add support for using ExternalArtifact as an ArtifactGenerator source
+  [#300](https://github.com/fluxcd/source-watcher/pull/300)
+- Extend copy operations with tarball extraction capabilities
+  [#302](https://github.com/fluxcd/source-watcher/pull/302)
+- Adds GitOps Toolkit EventRecorder to ArtifactGenerator reconciler
+  [#310](https://github.com/fluxcd/source-watcher/pull/310)
+- Add `DirectSourceFetch` feature gate to bypass cache for source objects
+  [#314](https://github.com/fluxcd/source-watcher/pull/314)
+- Various dependency updates
+  [#308](https://github.com/fluxcd/source-watcher/pull/308)
+  [#313](https://github.com/fluxcd/source-watcher/pull/313)
+  [#315](https://github.com/fluxcd/source-watcher/pull/315)
+
 ## 2.0.3
 
 **Release date:** 2025-11-19
