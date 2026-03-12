@@ -10,11 +10,11 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/fluxcd/pkg/apis/event v0.24.0
-	github.com/fluxcd/pkg/apis/meta v1.25.0
-	github.com/fluxcd/pkg/artifact v0.8.0
+	github.com/fluxcd/pkg/apis/event v0.25.0
+	github.com/fluxcd/pkg/apis/meta v1.26.0
+	github.com/fluxcd/pkg/artifact v0.11.0
 	github.com/fluxcd/pkg/http/fetch v0.22.0
-	github.com/fluxcd/pkg/runtime v0.100.1
+	github.com/fluxcd/pkg/runtime v0.103.0
 	github.com/fluxcd/pkg/tar v0.17.0
 	github.com/fluxcd/pkg/testserver v0.13.0
 	github.com/fluxcd/source-controller/api v1.8.0
@@ -23,11 +23,11 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/mod v0.33.0
-	k8s.io/api v0.35.0
-	k8s.io/apimachinery v0.35.0
-	k8s.io/client-go v0.35.0
+	k8s.io/api v0.35.2
+	k8s.io/apimachinery v0.35.2
+	k8s.io/client-go v0.35.2
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
-	sigs.k8s.io/controller-runtime v0.23.1
+	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -42,18 +42,18 @@ require (
 	github.com/containerd/stargz-snapshotter/estargz v0.18.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/docker/cli v29.1.5+incompatible // indirect
+	github.com/docker/cli v29.2.0+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
-	github.com/fluxcd/cli-utils v0.37.1-flux.1 // indirect
+	github.com/fluxcd/cli-utils v0.37.2-flux.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.7.0 // indirect
-	github.com/fluxcd/pkg/oci v0.60.0 // indirect
+	github.com/fluxcd/pkg/oci v0.63.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.17.0 // indirect
-	github.com/fluxcd/pkg/version v0.12.0 // indirect
+	github.com/fluxcd/pkg/version v0.14.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
@@ -116,12 +116,12 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.35.0 // indirect
-	k8s.io/cli-runtime v0.35.0 // indirect
-	k8s.io/component-base v0.35.0 // indirect
+	k8s.io/apiextensions-apiserver v0.35.2 // indirect
+	k8s.io/cli-runtime v0.35.2 // indirect
+	k8s.io/component-base v0.35.2 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
-	k8s.io/kubectl v0.35.0 // indirect
+	k8s.io/kubectl v0.35.2 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect
