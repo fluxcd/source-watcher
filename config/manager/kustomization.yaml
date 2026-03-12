@@ -6,4 +6,4 @@ resources:
 images:
   - name: fluxcd/source-watcher
     newName: fluxcd/source-watcher
-    newTag: v2.1.0
+    newTag: v2.1.1
