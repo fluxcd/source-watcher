@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.1.1
+
+**Release date:** 2026-03-12
+
+This patch release comes with dependency updates.
+
+Improvements:
+- Remove no longer needed workaround for Flux 2.8
+  [#319](https://github.com/fluxcd/source-watcher/pull/319)
+- Update fluxcd/pkg dependencies
+  [#324](https://github.com/fluxcd/source-watcher/pull/324)
+
 ## 2.1.0
 
 **Release date:** 2026-02-17
