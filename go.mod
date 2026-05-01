@@ -19,10 +19,10 @@ require (
 	github.com/fluxcd/pkg/testserver v0.13.0
 	github.com/fluxcd/source-controller/api v1.8.0
 	github.com/fluxcd/source-watcher/api/v2 v2.1.0
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/gomega v1.40.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/pflag v1.0.10
-	golang.org/x/mod v0.33.0
+	golang.org/x/mod v0.35.0
 	k8s.io/api v0.35.2
 	k8s.io/apimachinery v0.35.2
 	k8s.io/client-go v0.35.2
