@@ -42,8 +42,25 @@ const (
 	DisabledValue                    = "disabled"
 )
 
+// CommonMetadata defines the common labels and annotations.
+type CommonMetadata struct {
+	// Annotations to be added to the object's metadata.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Labels to be added to the object's metadata.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
 // ArtifactGeneratorSpec defines the desired state of ArtifactGenerator.
 type ArtifactGeneratorSpec struct {
+	// CommonMetadata specifies the common labels and annotations that are
+	// applied to all resources. Any existing label or annotation will be
+	// overridden if its key matches a common one.
+	// +optional
+	CommonMetadata *CommonMetadata `json:"commonMetadata,omitempty"`
+
 	// Sources is a list of references to the Flux source-controller
 	// resources that will be used to generate the artifact.
 	// +kubebuilder:validation:MinItems=1

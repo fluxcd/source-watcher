@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -427,6 +428,16 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 
 	// Prepare labels for the ExternalArtifact with the managed-by and generator labels.
 	labels := make(map[string]string)
+	var annotations map[string]string
+
+	if cm := obj.Spec.CommonMetadata; cm != nil {
+		maps.Copy(labels, cm.Labels)
+		if len(cm.Annotations) > 0 {
+			annotations = make(map[string]string)
+			maps.Copy(annotations, cm.Annotations)
+		}
+	}
+
 	labels["app.kubernetes.io/managed-by"] = r.ControllerName
 	labels[swapi.ArtifactGeneratorLabel] = string(obj.GetUID())
 
@@ -437,9 +448,10 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 			Kind:       sourcev1.ExternalArtifactKind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      outputArtifact.Name,
-			Namespace: obj.Namespace,
-			Labels:    labels,
+			Name:        outputArtifact.Name,
+			Namespace:   obj.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: sourcev1.ExternalArtifactSpec{
 			SourceRef: &gotkmeta.NamespacedObjectKindReference{
