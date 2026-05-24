@@ -529,6 +529,113 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 	}
 }
 
+func TestArtifactGeneratorReconciler_CommonMetadata(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Create a namespace
+	ns, err := testEnv.CreateNamespace(ctx, "test-cm")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the ArtifactGenerator object
+	objKey := client.ObjectKey{
+		Name:      "test-cm-gen",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	obj.Spec.Sources = []swapi.SourceReference{
+		{
+			Alias: fmt.Sprintf("%s-git", objKey.Name),
+			Kind:  sourcev1.GitRepositoryKind,
+			Name:  objKey.Name,
+		},
+	}
+	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{
+		{
+			Name: fmt.Sprintf("%s-git", objKey.Name),
+			Copy: []swapi.CopyOperation{
+				{
+					From: fmt.Sprintf("@%s-git/**", objKey.Name),
+					To:   "@artifact/",
+				},
+			},
+		},
+	}
+	obj.Spec.CommonMetadata = &swapi.CommonMetadata{
+		Labels: map[string]string{
+			"test-label": "true",
+		},
+		Annotations: map[string]string{
+			"test-annotation": "true",
+		},
+	}
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the GitRepository source
+	gitFiles := []gotktestsrv.File{
+		{Name: "app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: test-app"},
+	}
+	err = applyGitRepository(objKey, "main@sha256:abc123", gitFiles)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Initialize the ArtifactGenerator with the finalizer
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to process the sources and build artifacts
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	t.Run("sets labels and annotations", func(t *testing.T) {
+		g := NewWithT(t)
+		err = testClient.Get(ctx, objKey, obj)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(gotkconditions.IsReady(obj)).To(BeTrue())
+
+		externalArtifact := &sourcev1.ExternalArtifact{}
+		key := client.ObjectKey{Name: fmt.Sprintf("%s-git", obj.Name), Namespace: obj.Namespace}
+		err = testClient.Get(ctx, key, externalArtifact)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		g.Expect(externalArtifact.Labels).To(HaveKeyWithValue("test-label", "true"))
+		g.Expect(externalArtifact.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", controllerName))
+		g.Expect(externalArtifact.Labels).To(HaveKeyWithValue(swapi.ArtifactGeneratorLabel, string(obj.GetUID())))
+		g.Expect(externalArtifact.Annotations).To(HaveKeyWithValue("test-annotation", "true"))
+	})
+
+	t.Run("removes labels and annotations", func(t *testing.T) {
+		g := NewWithT(t)
+		err = testClient.Get(ctx, objKey, obj)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		obj.Spec.CommonMetadata = nil
+		err = testClient.Update(ctx, obj)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		// Reconcile to process the update
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: objKey,
+		})
+		g.Expect(err).ToNot(HaveOccurred())
+
+		externalArtifact := &sourcev1.ExternalArtifact{}
+		key := client.ObjectKey{Name: fmt.Sprintf("%s-git", obj.Name), Namespace: obj.Namespace}
+		err = testClient.Get(ctx, key, externalArtifact)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		g.Expect(externalArtifact.Labels).ToNot(HaveKey("test-label"))
+		g.Expect(externalArtifact.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", controllerName))
+		g.Expect(externalArtifact.Annotations).ToNot(HaveKey("test-annotation"))
+	})
+}
+
 func getArtifactGeneratorReconciler() *ArtifactGeneratorReconciler {
 	return &ArtifactGeneratorReconciler{
 		ControllerName:            controllerName,
