@@ -159,7 +159,10 @@ type CopyOperation struct {
 	To string `json:"to"`
 
 	// Exclude specifies a list of glob patterns to exclude
-	// files and dirs matched by the 'From' field.
+	// files and dirs matched by the 'From' field. Patterns are matched
+	// against paths relative to the source alias root or to the non-glob
+	// prefix of 'From'. Patterns without a separator (e.g. "*.md") match
+	// the file name at any depth.
 	// +kubebuilder:validation:MaxItems=100
 	// +optional
 	Exclude []string `json:"exclude,omitempty"`
