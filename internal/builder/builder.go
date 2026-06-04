@@ -200,6 +200,8 @@ func applyCopyOperation(ctx context.Context,
 		return fmt.Errorf("no files match pattern '%s' in source '%s'", srcPattern, srcAlias)
 	}
 
+	excludeBasePath := sourceSelectionRoot(srcPattern)
+
 	// Filter out excluded files and special directory entries
 	filteredMatches := make([]string, 0, len(matches))
 	for _, match := range matches {
@@ -209,7 +211,7 @@ func applyCopyOperation(ctx context.Context,
 		if match == "." || match == ".." {
 			continue
 		}
-		if shouldExclude(match, op.Exclude) {
+		if shouldExcludePath(match, excludeBasePath, op.Exclude) {
 			continue
 		}
 		filteredMatches = append(filteredMatches, match)
@@ -238,7 +240,7 @@ func applyCopyOperation(ctx context.Context,
 			// Calculate destination path based on glob pattern type
 			destFile := calculateGlobDestination(srcPattern, match, destRelPath)
 
-			if err := copyFileWithRoots(ctx, op, srcRoot, match, stagingRoot, destFile); err != nil {
+			if err := copyFileWithRoots(ctx, op, srcRoot, match, stagingRoot, destFile, excludeBasePath); err != nil {
 				return fmt.Errorf("failed to copy file '%s' to '%s': %w", match, destFile, err)
 			}
 		}
@@ -292,7 +294,7 @@ func applySingleFileCopy(ctx context.Context,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Check if the file should be excluded
-	if shouldExclude(srcPath, op.Exclude) {
+	if shouldExcludePath(srcPath, ".", op.Exclude) {
 		return nil // Skip excluded file
 	}
 
@@ -321,7 +323,7 @@ func applySingleFileCopy(ctx context.Context,
 		}
 	}
 
-	return copyFileWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, finalDestPath)
+	return copyFileWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, finalDestPath, ".")
 }
 
 // applySingleDirectoryCopy handles copying a single directory using cp-like semantics.
@@ -336,7 +338,7 @@ func applySingleDirectoryCopy(ctx context.Context,
 	srcDirName := filepath.Base(srcPath)
 	finalDestPath := filepath.Join(destPath, srcDirName)
 
-	return copyFileWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, finalDestPath)
+	return copyFileWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, finalDestPath, srcPath)
 }
 
 // containsGlobChars returns true if the path contains glob metacharacters
@@ -350,21 +352,38 @@ func containsGlobChars(path string) bool {
 // - other patterns preserve the full match path
 func calculateGlobDestination(pattern, match, destPath string) string {
 
-	// Check if pattern ends with /** (recursive contents pattern)
-	if strings.HasSuffix(pattern, "/**") {
-		// Extract the directory prefix from pattern (everything before /**)
-		dirPrefix := strings.TrimSuffix(pattern, "/**")
-
+	// Check if pattern ends with /** (recursive contents pattern) and extract
+	// the directory prefix from pattern (everything before /**).
+	if dirPrefix, ok := strings.CutSuffix(pattern, "/**"); ok {
 		// If match starts with this prefix, strip it (cp-like behavior)
-		if strings.HasPrefix(match, dirPrefix+"/") {
-			// Strip the directory prefix but keep the rest of the path
-			relativeMatch := strings.TrimPrefix(match, dirPrefix+"/")
+		// but keep the rest of the path.
+		if relativeMatch, ok := strings.CutPrefix(match, dirPrefix+"/"); ok {
 			return filepath.Join(destPath, relativeMatch)
 		}
 	}
 
 	// For other glob patterns, preserve the full match path
 	return filepath.Join(destPath, match)
+}
+
+// sourceSelectionRoot returns the literal source prefix before the first glob segment.
+func sourceSelectionRoot(pattern string) string {
+	pattern = filepath.Clean(pattern)
+
+	parts := strings.Split(pattern, string(filepath.Separator))
+	rootParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if containsGlobChars(part) {
+			break
+		}
+		rootParts = append(rootParts, part)
+	}
+
+	if len(rootParts) == 0 {
+		return "."
+	}
+
+	return filepath.Join(rootParts...)
 }
 
 // parseCopySource parses the source string and returns the alias and pattern.
@@ -398,14 +417,15 @@ func copyFileWithRoots(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	destPath string) error {
+	destPath string,
+	excludeBasePath string) error {
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath, op.Exclude)
+		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath, op.Exclude, excludeBasePath)
 	}
 
 	if shouldMergeFile(op, stagingRoot, destPath) {
@@ -514,7 +534,8 @@ func copyDirWithRoots(ctx context.Context,
 	srcPath string,
 	stagingRoot *os.Root,
 	destPath string,
-	excludePatterns []string) error {
+	excludePatterns []string,
+	excludeBasePath string) error {
 	return fs.WalkDir(srcRoot.FS(), srcPath, func(path string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -536,8 +557,7 @@ func copyDirWithRoots(ctx context.Context,
 			return createDirRecursive(stagingRoot, destPath)
 		}
 
-		// Check if this path should be excluded
-		if shouldExclude(relPath, excludePatterns) {
+		if shouldExcludePath(path, excludeBasePath, excludePatterns) {
 			if d.IsDir() {
 				// Skip entire directory
 				return fs.SkipDir
@@ -584,6 +604,40 @@ func createDirRecursive(root *os.Root, path string) error {
 	}
 
 	return err
+}
+
+// shouldExcludePath matches excludes against both the source-root-relative path
+// and the path relative to the operation's selected source root.
+func shouldExcludePath(filePath, basePath string, excludePatterns []string) bool {
+	if shouldExclude(filePath, excludePatterns) {
+		return true
+	}
+
+	relPath, ok := relativeToBase(basePath, filePath)
+	if !ok || relPath == "." || relPath == filePath {
+		return false
+	}
+
+	return shouldExclude(relPath, excludePatterns)
+}
+
+func relativeToBase(basePath, filePath string) (string, bool) {
+	basePath = filepath.Clean(basePath)
+	filePath = filepath.Clean(filePath)
+
+	if basePath == "." || basePath == "" {
+		return filePath, true
+	}
+
+	relPath, err := filepath.Rel(basePath, filePath)
+	if err != nil {
+		return "", false
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+
+	return relPath, true
 }
 
 // shouldExclude checks if a path matches any of the exclude patterns.

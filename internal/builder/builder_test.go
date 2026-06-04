@@ -947,6 +947,308 @@ func TestBuildWithExcludes(t *testing.T) {
 			},
 		},
 		{
+			// Reproduces https://github.com/fluxcd/source-watcher/issues/306
+			// Excluding a nested directory using a full path relative to the
+			// source root (e.g. "infrastructure/controllers/descheduler/**")
+			// must filter out the matching files, just like "**/dir/**" does.
+			name: "exclude nested directory by full path from source root",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				// Mirror a monorepo layout like flux2-kustomize-helm-example.
+				createDir(t, srcDir, "infrastructure/controllers/descheduler")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/descheduler"), "release.yaml", "descheduler release")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/descheduler"), "kustomization.yaml", "descheduler kustomization")
+
+				createDir(t, srcDir, "infrastructure/controllers/sealed-secrets")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/sealed-secrets"), "release.yaml", "sealed-secrets release")
+
+				createDir(t, srcDir, "infrastructure/configs")
+				createFile(t, filepath.Join(srcDir, "infrastructure/configs"), "cluster-issuer.yaml", "cluster issuer")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/infrastructure/**",
+							To:      "@artifact/",
+							Exclude: []string{"infrastructure/controllers/descheduler/**"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should keep everything outside the excluded directory.
+				g.Expect(filepath.Join(artifactDir, "controllers", "sealed-secrets", "release.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "configs", "cluster-issuer.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have the excluded descheduler directory or its contents.
+				g.Expect(filepath.Join(artifactDir, "controllers", "descheduler")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "controllers", "descheduler", "release.yaml")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "controllers", "descheduler", "kustomization.yaml")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			// Exclude patterns must be anchored at the source-alias root even
+			// when the copy source is a plain directory reference (non-glob),
+			// so the same pattern works regardless of whether "from" is a glob.
+			name: "exclude nested directory from non-glob directory copy by source root path",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createDir(t, srcDir, "infrastructure/controllers/descheduler")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/descheduler"), "release.yaml", "descheduler release")
+
+				createDir(t, srcDir, "infrastructure/controllers/sealed-secrets")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/sealed-secrets"), "release.yaml", "sealed-secrets release")
+
+				createDir(t, srcDir, "infrastructure/configs")
+				createFile(t, filepath.Join(srcDir, "infrastructure/configs"), "cluster-issuer.yaml", "cluster issuer")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/infrastructure",
+							To:      "@artifact/",
+							Exclude: []string{"infrastructure/controllers/descheduler/**"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// A non-glob directory copy nests under the source directory name.
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "controllers", "sealed-secrets", "release.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "configs", "cluster-issuer.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have the excluded descheduler directory or its contents.
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "controllers", "descheduler")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "controllers", "descheduler", "release.yaml")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			// Exclude patterns can also be anchored at the selected source root,
+			// so the same subtree pattern works for glob and non-glob directory copies.
+			name: "exclude nested directory from glob directory copy by selected root path",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createDir(t, srcDir, "infrastructure/controllers/descheduler")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/descheduler"), "release.yaml", "descheduler release")
+
+				createDir(t, srcDir, "infrastructure/controllers/sealed-secrets")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/sealed-secrets"), "release.yaml", "sealed-secrets release")
+
+				createDir(t, srcDir, "infrastructure/configs")
+				createFile(t, filepath.Join(srcDir, "infrastructure/configs"), "cluster-issuer.yaml", "cluster issuer")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/infrastructure/**",
+							To:      "@artifact/",
+							Exclude: []string{"controllers/descheduler/**"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				g.Expect(filepath.Join(artifactDir, "controllers", "sealed-secrets", "release.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "configs", "cluster-issuer.yaml")).To(BeAnExistingFile())
+
+				g.Expect(filepath.Join(artifactDir, "controllers", "descheduler")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "controllers", "descheduler", "release.yaml")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			// Selected-root matching should not use the directory currently being
+			// walked as the anchor, otherwise a basename pattern can over-exclude
+			// nested directories with the same name.
+			name: "exclude does not use recursive walk root as anchor",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createDir(t, srcDir, "infrastructure/descheduler")
+				createFile(t, filepath.Join(srcDir, "infrastructure/descheduler"), "release.yaml", "top-level descheduler")
+
+				createDir(t, srcDir, "infrastructure/controllers/descheduler")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/descheduler"), "release.yaml", "nested descheduler")
+
+				createDir(t, srcDir, "infrastructure/controllers/sealed-secrets")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/sealed-secrets"), "release.yaml", "sealed-secrets release")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/infrastructure/**",
+							To:      "@artifact/",
+							Exclude: []string{"descheduler/**"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				g.Expect(filepath.Join(artifactDir, "descheduler")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "descheduler", "release.yaml")).ToNot(BeAnExistingFile())
+
+				g.Expect(filepath.Join(artifactDir, "controllers", "descheduler", "release.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "controllers", "sealed-secrets", "release.yaml")).To(BeAnExistingFile())
+			},
+		},
+		{
+			// Existing non-glob directory copy behavior matched exclude patterns
+			// against paths relative to the selected source root.
+			name: "exclude nested directory from non-glob directory copy by subtree path",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createDir(t, srcDir, "infrastructure/controllers/descheduler")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/descheduler"), "release.yaml", "descheduler release")
+
+				createDir(t, srcDir, "infrastructure/controllers/sealed-secrets")
+				createFile(t, filepath.Join(srcDir, "infrastructure/controllers/sealed-secrets"), "release.yaml", "sealed-secrets release")
+
+				createDir(t, srcDir, "infrastructure/configs")
+				createFile(t, filepath.Join(srcDir, "infrastructure/configs"), "cluster-issuer.yaml", "cluster issuer")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/infrastructure",
+							To:      "@artifact/",
+							Exclude: []string{"controllers/descheduler/**"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// A non-glob directory copy nests under the source directory name.
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "controllers", "sealed-secrets", "release.yaml")).To(BeAnExistingFile())
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "configs", "cluster-issuer.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have the excluded descheduler directory or its contents.
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "controllers", "descheduler")).ToNot(BeADirectory())
+				g.Expect(filepath.Join(artifactDir, "infrastructure", "controllers", "descheduler", "release.yaml")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
+			// Excluding a single nested file by its full path from the source
+			// root must filter out just that file, leaving its siblings intact.
+			name: "exclude single nested file by full path from source root",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createDir(t, srcDir, "infrastructure/configs")
+				createFile(t, filepath.Join(srcDir, "infrastructure/configs"), "app.yaml", "app config")
+				createFile(t, filepath.Join(srcDir, "infrastructure/configs"), "secret.yaml", "secret config")
+
+				spec := &swapi.OutputArtifact{
+					Name:     "test-artifact",
+					Revision: "v1.0.0",
+					Copy: []swapi.CopyOperation{
+						{
+							From:    "@source/infrastructure/**",
+							To:      "@artifact/",
+							Exclude: []string{"infrastructure/configs/secret.yaml"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, stagingDir string) {
+				g := NewWithT(t)
+				artifactDir := filepath.Join(stagingDir, "test-artifact")
+
+				// Should keep the sibling file.
+				g.Expect(filepath.Join(artifactDir, "configs", "app.yaml")).To(BeAnExistingFile())
+
+				// Should NOT have the single excluded file.
+				g.Expect(filepath.Join(artifactDir, "configs", "secret.yaml")).ToNot(BeAnExistingFile())
+			},
+		},
+		{
 			name: "all files excluded - error",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()

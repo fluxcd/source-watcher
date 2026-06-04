@@ -268,6 +268,9 @@ Each copy operation specifies how to copy files from sources into the generated 
   the root of the generated artifact and `path` is the relative path to a file or directory.
 - `exclude` (optional): A list of glob patterns to filter out from the source selection.
   Any file matched by `from` that also matches an exclude pattern will be ignored.
+  Patterns are matched against paths relative to the source alias root or to the
+  non-glob prefix of `from`. Patterns without a separator (e.g. `*.md`) match the
+  file name at any depth.
 - `strategy` (optional): Defines how to handle files during copy operations:
   `Overwrite` (default), `Merge` (for YAML files), or `Extract` (for tarball archives).
 
@@ -302,6 +305,7 @@ Examples of copy operations:
   exclude:
     - "*.md"                       # Excludes all .md files
     - "**/testdata/**"             # Excludes all files under any testdata/ dir
+    - "subdir/**"                  # Excludes configs/subdir/ relative to the from prefix
 ```
 
 #### Copy Strategies

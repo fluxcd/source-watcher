@@ -244,6 +244,70 @@ version: 1.0.0
 			},
 		},
 		{
+			name: "merge YAML in dirs with exclude",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				source1Dir := filepath.Join(tmpDir, "source1")
+				source2Dir := filepath.Join(tmpDir, "source2")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, source1Dir, source2Dir, workspaceDir)
+
+				// Base config and a secret to be protected from the overlay.
+				createFile(t, source1Dir, "config.yaml", `
+env: dev
+region: us-west-1
+`)
+				createFile(t, source1Dir, "secret.yaml", "token: base")
+
+				// Overlay merges config but tries to override the secret.
+				createFile(t, source2Dir, "config.yaml", "env: prod")
+				createFile(t, source2Dir, "secret.yaml", "token: leak")
+
+				spec := &swapi.OutputArtifact{
+					Name: "yaml-merge-exclude",
+					Copy: []swapi.CopyOperation{
+						{
+							From:     "@source1/**",
+							To:       "@artifact/",
+							Strategy: swapi.OverwriteStrategy,
+						},
+						{
+							From:     "@source2/**",
+							To:       "@artifact/",
+							Strategy: swapi.MergeStrategy,
+							Exclude:  []string{"secret.yaml"},
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source1": source1Dir,
+					"source2": source2Dir,
+				}
+				return spec, sources, workspaceDir
+			},
+			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
+				g := NewWithT(t)
+				g.Expect(artifact).ToNot(BeNil())
+
+				stagingDir := filepath.Join(workspaceDir, "yaml-merge-exclude")
+
+				// config.yaml is merged from both sources.
+				configContent, err := os.ReadFile(filepath.Join(stagingDir, "config.yaml"))
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(configContent).To(MatchYAML(`
+env: prod
+region: us-west-1
+`))
+
+				// secret.yaml keeps the base content as the overlay was excluded.
+				secretContent, err := os.ReadFile(filepath.Join(stagingDir, "secret.yaml"))
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(secretContent).To(MatchYAML("token: base"))
+			},
+		},
+		{
 			name: "merge with non existing destination file",
 			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
 				tmpDir := t.TempDir()
