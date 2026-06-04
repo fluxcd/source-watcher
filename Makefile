@@ -24,7 +24,7 @@ BUILD_PLATFORMS ?= linux/amd64
 ENVTEST_ARCH ?= amd64
 
 # API generation utilities
-CONTROLLER_GEN_VERSION ?= v0.19.0
+CONTROLLER_GEN_VERSION ?= v0.21.0
 
 # Download source-controller CRDs
 SOURCE_VER ?= $(shell go list -m all | grep github.com/fluxcd/source-controller/api | awk '{print $$2}')
