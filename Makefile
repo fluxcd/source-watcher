@@ -17,11 +17,13 @@ endif
 
 # Allows for defining additional Docker buildx arguments, e.g. '--push'.
 BUILD_ARGS ?=
-# Architectures to build images for.
-BUILD_PLATFORMS ?= linux/amd64
+# Host architecture, used so local builds and envtest target the host.
+LOCALARCH ?= $(shell go env GOARCH)
+# Architectures to build images for; defaults to the host architecture.
+BUILD_PLATFORMS ?= linux/$(LOCALARCH)
 
-# Architecture to use envtest with
-ENVTEST_ARCH ?= amd64
+# Architecture to use envtest with; defaults to the host architecture.
+ENVTEST_ARCH ?= $(LOCALARCH)
 
 # API generation utilities
 CONTROLLER_GEN_VERSION ?= v0.21.0
