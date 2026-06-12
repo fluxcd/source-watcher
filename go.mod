@@ -10,11 +10,11 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/fluxcd/pkg/apis/event v0.26.0
-	github.com/fluxcd/pkg/apis/meta v1.29.0
-	github.com/fluxcd/pkg/artifact v0.17.0
+	github.com/fluxcd/pkg/apis/event v0.27.0
+	github.com/fluxcd/pkg/apis/meta v1.30.0
+	github.com/fluxcd/pkg/artifact v0.18.0
 	github.com/fluxcd/pkg/http/fetch v0.25.0
-	github.com/fluxcd/pkg/runtime v0.109.0
+	github.com/fluxcd/pkg/runtime v0.110.0
 	github.com/fluxcd/pkg/tar v1.2.0
 	github.com/fluxcd/pkg/testserver v0.14.0
 	github.com/fluxcd/source-controller/api v1.8.5
@@ -34,7 +34,7 @@ require (
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/MakeNowJust/heredoc v1.0.0 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
+	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -49,9 +49,9 @@ require (
 	github.com/fluxcd/cli-utils v1.2.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.8.0 // indirect
-	github.com/fluxcd/pkg/oci v0.67.0 // indirect
+	github.com/fluxcd/pkg/oci v0.68.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.18.0 // indirect
-	github.com/fluxcd/pkg/version v0.15.0 // indirect
+	github.com/fluxcd/pkg/version v0.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
