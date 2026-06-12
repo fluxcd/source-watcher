@@ -12,9 +12,9 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/fluxcd/pkg/apis/event v0.26.0
 	github.com/fluxcd/pkg/apis/meta v1.29.0
-	github.com/fluxcd/pkg/artifact v0.16.0
+	github.com/fluxcd/pkg/artifact v0.17.0
 	github.com/fluxcd/pkg/http/fetch v0.25.0
-	github.com/fluxcd/pkg/runtime v0.108.0
+	github.com/fluxcd/pkg/runtime v0.109.0
 	github.com/fluxcd/pkg/tar v1.2.0
 	github.com/fluxcd/pkg/testserver v0.14.0
 	github.com/fluxcd/source-controller/api v1.8.5
@@ -49,7 +49,7 @@ require (
 	github.com/fluxcd/cli-utils v1.2.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.8.0 // indirect
-	github.com/fluxcd/pkg/oci v0.66.0 // indirect
+	github.com/fluxcd/pkg/oci v0.67.0 // indirect
 	github.com/fluxcd/pkg/sourceignore v0.18.0 // indirect
 	github.com/fluxcd/pkg/version v0.15.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
