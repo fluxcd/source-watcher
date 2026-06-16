@@ -193,14 +193,27 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		return ctrl.Result{RequeueAfter: r.DependencyRequeueInterval}, nil
 	}
 
-	// Prepare a slice to hold the references to the created ExternalArtifact objects.
-	eaRefs := make([]swapi.ExternalArtifactReference, 0, len(obj.Spec.OutputArtifacts))
-
 	// Build the artifacts and reconcile the ExternalArtifact objects.
 	// The artifacts will be stored in the storage under the following path:
 	// <storage-root>/<kind>/<namespace>/<name>/<contents-hash>.tar.gz
 	artifactBuilder := builder.New(r.Storage)
-	for _, oa := range obj.Spec.OutputArtifacts {
+
+	reqs, err := buildArtifactRequests(obj, localSources)
+	if err != nil {
+		msg := fmt.Sprintf("failed to expand path pattern: %s", err.Error())
+		gotkconditions.MarkFalse(obj,
+			gotkmeta.ReadyCondition,
+			gotkmeta.BuildFailedReason,
+			"%s", msg)
+		r.Event(obj, corev1.EventTypeWarning, gotkmeta.BuildFailedReason, msg)
+		return ctrl.Result{}, err
+	}
+
+	// Prepare a slice to hold the references to the created ExternalArtifact objects.
+	eaRefs := make([]swapi.ExternalArtifactReference, 0, len(reqs))
+
+	for _, req := range reqs {
+		oa := req.OutputArtifact
 		// Build the artifact using the local sources.
 		artifact, err := artifactBuilder.Build(ctx, &oa, localSources, obj.Namespace, tmpDir)
 		if err != nil {
@@ -219,7 +232,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		// Reconcile the ExternalArtifact corresponding to the built artifact.
 		// The ExternalArtifact will reference the artifact stored in the storage backend.
 		// If the ExternalArtifact already exists, its status will be updated with the new artifact details.
-		eaRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact)
+		eaRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact, req.Labels)
 		if err != nil {
 			msg := fmt.Sprintf("%s reconcile failed: %s", oa.Name, err.Error())
 			gotkconditions.MarkFalse(obj,
@@ -423,7 +436,8 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	outputArtifact *swapi.OutputArtifact,
-	artifact *gotkmeta.Artifact) (*swapi.ExternalArtifactReference, error) {
+	artifact *gotkmeta.Artifact,
+	dynamicLabels map[string]string) (*swapi.ExternalArtifactReference, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Prepare labels for the ExternalArtifact with the managed-by and generator labels.
@@ -437,6 +451,8 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 			maps.Copy(annotations, cm.Annotations)
 		}
 	}
+
+	maps.Copy(labels, dynamicLabels)
 
 	labels["app.kubernetes.io/managed-by"] = r.ControllerName
 	labels[swapi.ArtifactGeneratorLabel] = string(obj.GetUID())

@@ -114,7 +114,7 @@ spec:
                     name:
                       description: Name is the name of the generated artifact.
                       maxLength: 253
-                      pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+                      pattern: ^[a-zA-Z0-9{]([a-zA-Z0-9\-\{\}\.\s]*[a-zA-Z0-9}])?$
                       type: string
                     originRevision:
                       description: |-
@@ -159,6 +159,14 @@ spec:
                     description: Labels to be added to the object's metadata.
                     type: object
                 type: object
+              pathPattern:
+                description: |-
+                  PathPattern specifies a directory traversal pattern to match within the sources.
+                  The format is "@<alias>/<pattern>". Named captures in the pattern (e.g. "{app}")
+                  can be used as Go template variables in OutputArtifacts fields.
+                maxLength: 1024
+                pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
+                type: string
               sources:
                 description: |-
                   Sources is a list of references to the Flux source-controller

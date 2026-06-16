@@ -78,7 +78,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-generator",
 			Namespace: ns.Name,
-		}}, outputArtifact, artifact)
+		}}, outputArtifact, artifact, nil)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	tests := []struct {
