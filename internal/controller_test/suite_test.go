@@ -136,7 +136,7 @@ func registerController() error {
 		Client:                    testEnv.Manager.GetClient(),
 		APIReader:                 testEnv.Manager.GetAPIReader(),
 		Scheme:                    testEnv.Scheme(),
-		EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
+		EventRecorder:             testEnv.GetEventRecorder(controllerName),
 		Storage:                   testStorage,
 		ArtifactFetchRetries:      1,
 		DependencyRequeueInterval: 5 * time.Second,

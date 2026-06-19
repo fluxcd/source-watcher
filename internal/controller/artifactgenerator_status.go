@@ -25,6 +25,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	eventv1 "github.com/fluxcd/pkg/apis/event/v1"
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 	gotkpatch "github.com/fluxcd/pkg/runtime/patch"
@@ -104,6 +105,6 @@ func (r *ArtifactGeneratorReconciler) newTerminalErrorFor(obj *swapi.ArtifactGen
 	terminalErr := fmt.Errorf(messageFormat, messageArgs...)
 	gotkconditions.MarkFalse(obj, gotkmeta.ReadyCondition, reason, "%s", terminalErr.Error())
 	gotkconditions.MarkStalled(obj, reason, "%s", terminalErr.Error())
-	r.Event(obj, corev1.EventTypeWarning, reason, terminalErr.Error())
+	r.Eventf(obj, nil, corev1.EventTypeWarning, reason, eventv1.ActionFailed, "%s", terminalErr.Error())
 	return reconcile.TerminalError(terminalErr)
 }

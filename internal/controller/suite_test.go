@@ -17,14 +17,12 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -135,16 +133,4 @@ func objToYaml(obj client.Object) string {
 		return fmt.Sprintf("error: %v", err)
 	}
 	return fmt.Sprintf("---\n%s", string(yamlBytes))
-}
-
-func getEvents(objName, objNamespace string) []corev1.Event {
-	var result []corev1.Event
-	events := &corev1.EventList{}
-	_ = testClient.List(context.Background(), events)
-	for _, event := range events.Items {
-		if event.InvolvedObject.Name == objName && event.InvolvedObject.Namespace == objNamespace {
-			result = append(result, event)
-		}
-	}
-	return result
 }
