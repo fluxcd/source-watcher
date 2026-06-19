@@ -27,6 +27,7 @@ import (
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotktestenv "github.com/fluxcd/pkg/runtime/testenv"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
@@ -136,7 +137,8 @@ func TestArtifactGeneratorReconciler_specValidation(t *testing.T) {
 			g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(tt.expectedReason))
 
 			// Verify event was recorded
-			events := getEvents(obj.Name, obj.Namespace)
+			events, err := gotktestenv.GetEvents(ctx, testClient, obj.Name, obj.Namespace, nil)
+			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(events).ToNot(BeEmpty())
 			g.Expect(events[0].Reason).To(Equal(tt.expectedReason))
 		})

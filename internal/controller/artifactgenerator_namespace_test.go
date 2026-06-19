@@ -31,6 +31,7 @@ import (
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotktestenv "github.com/fluxcd/pkg/runtime/testenv"
 	gotktestsrv "github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
@@ -300,16 +301,24 @@ func TestArtifactGeneratorReconciler_OwnershipConflict(t *testing.T) {
 		g.Expect(ea.Labels).To(HaveKeyWithValue(swapi.ArtifactGeneratorLabel, string(obj.GetUID())))
 
 		// One warning event per taken over ExternalArtifact.
-		g.Expect(eventsWithReason(getEvents(name, tgtNS.Name), swapi.OwnershipConflictReason)).
+		g.Expect(eventsWithReason(getEvents(g, name, tgtNS.Name), swapi.OwnershipConflictReason)).
 			To(HaveLen(1))
 	}
 
 	// A single summary warning event is emitted for the ArtifactGenerator,
 	// counting the ExternalArtifacts that had a conflict.
-	agConflicts := eventsWithReason(getEvents(obj.Name, obj.Namespace), swapi.OwnershipConflictReason)
+	agConflicts := eventsWithReason(getEvents(g, obj.Name, obj.Namespace), swapi.OwnershipConflictReason)
 	g.Expect(agConflicts).To(HaveLen(1))
 	g.Expect(agConflicts[0].Type).To(Equal(corev1.EventTypeWarning))
 	g.Expect(agConflicts[0].Message).To(Equal("ownership conflict detected for 2 ExternalArtifact(s)"))
+}
+
+// getEvents returns the Kubernetes events recorded for the given object,
+// failing the test if they cannot be fetched.
+func getEvents(g *WithT, objName, namespace string) []corev1.Event {
+	events, err := gotktestenv.GetEvents(testCtx, testClient, objName, namespace, nil)
+	g.Expect(err).ToNot(HaveOccurred())
+	return events
 }
 
 // eventsWithReason returns the events with the given reason.
