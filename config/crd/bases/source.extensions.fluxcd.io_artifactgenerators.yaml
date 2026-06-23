@@ -8,6 +8,10 @@ metadata:
 spec:
   group: source.extensions.fluxcd.io
   names:
+    categories:
+    - all
+    - fluxcd
+    - fluxcd-sources
     kind: ArtifactGenerator
     listKind: ArtifactGeneratorList
     plural: artifactgenerators
