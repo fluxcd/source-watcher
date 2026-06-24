@@ -39,6 +39,8 @@ import (
 	gotktestsrv "github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
+	gotkfetch "github.com/fluxcd/pkg/http/fetch"
+	gotktar "github.com/fluxcd/pkg/tar"
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
@@ -529,6 +531,63 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 	}
 }
 
+func TestArtifactGeneratorReconciler_PathPatternBuildFailedTerminal(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ns, err := testEnv.CreateNamespace(ctx, "test-pattern-build-failed")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	objKey := client.ObjectKey{
+		Name:      "test-pattern-build-failed",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	obj.Spec.Sources = []swapi.SourceReference{
+		{
+			Alias: fmt.Sprintf("%s-git", objKey.Name),
+			Kind:  sourcev1.GitRepositoryKind,
+			Name:  objKey.Name,
+		},
+	}
+	obj.Spec.PathPattern = fmt.Sprintf("@%s-git/apps/{app}", objKey.Name)
+	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{
+		{
+			Name: fmt.Sprintf("%s-{app}", objKey.Name),
+			Copy: []swapi.CopyOperation{
+				{From: fmt.Sprintf("@%s-git/apps/{app}/**", objKey.Name), To: "@artifact/"},
+			},
+		},
+	}
+
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	err = applyGitRepository(objKey, "main@sha256:buildfailed", []gotktestsrv.File{
+		{Name: "apps/.hidden/app.yaml", Body: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test"},
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	r, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
+
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(errors.Is(err, reconcile.TerminalError(nil))).To(BeTrue())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(gotkconditions.IsStalled(obj)).To(BeTrue())
+	g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(gotkmeta.BuildFailedReason))
+	g.Expect(gotkconditions.GetMessage(obj, gotkmeta.ReadyCondition)).To(ContainSubstring("failed to expand path pattern"))
+	g.Expect(gotkconditions.GetMessage(obj, gotkmeta.ReadyCondition)).To(ContainSubstring("pathPattern"))
+	g.Expect(gotkconditions.GetMessage(obj, gotkmeta.ReadyCondition)).To(ContainSubstring("not a valid Kubernetes label value"))
+}
+
 func TestArtifactGeneratorReconciler_CommonMetadata(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
@@ -847,4 +906,192 @@ func findArtifactsInStorage(namespace string) ([]string, error) {
 		return artifacts, nil
 	}
 	return artifacts, err
+}
+
+func TestArtifactGeneratorReconciler_PathPattern(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Create a namespace
+	ns, err := testEnv.CreateNamespace(ctx, "test-pattern")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the ArtifactGenerator object
+	objKey := client.ObjectKey{
+		Name:      "test-pattern-gen",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	obj.Spec.Sources = []swapi.SourceReference{
+		{
+			Alias: fmt.Sprintf("%s-git", objKey.Name),
+			Kind:  sourcev1.GitRepositoryKind,
+			Name:  objKey.Name,
+		},
+	}
+	obj.Spec.PathPattern = fmt.Sprintf("@%s-git/apps/{app}/envs/{env}", objKey.Name)
+	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{
+		{
+			Name: fmt.Sprintf("%s-{app}-{env}", objKey.Name),
+			Copy: []swapi.CopyOperation{
+				{
+					From: fmt.Sprintf("@%s-git/apps/{app}/envs/{env}/**", objKey.Name),
+					To:   "@artifact/",
+				},
+			},
+		},
+	}
+
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Create the GitRepository source with multiple matching directories
+	gitFiles := []gotktestsrv.File{
+		{Name: "apps/auth/envs/dev/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: auth-dev"},
+		{Name: "apps/auth/envs/prod/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: auth-prod"},
+		{Name: "apps/payments/envs/dev/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments-dev"},
+		{Name: "apps/payments/envs/staging/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments-staging"},
+		{Name: "apps/ignore-me/something/app.yaml", Body: "apiVersion: apps/v1"}, // Should not match pattern
+	}
+	err = applyGitRepository(objKey, "main@sha256:abc12345", gitFiles)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Initialize the ArtifactGenerator with the finalizer
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Reconcile to process the sources and build artifacts
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: objKey,
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	t.Run("generates external artifacts per matched directory", func(t *testing.T) {
+		g := NewWithT(t)
+		err = testClient.Get(ctx, objKey, obj)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(gotkconditions.IsReady(obj)).To(BeTrue())
+
+		// Verify that 4 ExternalArtifacts were created matching the 4 directories
+		expectedArtifacts := []struct {
+			name string
+			app  string
+			env  string
+		}{
+			{name: fmt.Sprintf("%s-auth-dev", objKey.Name), app: "auth", env: "dev"},
+			{name: fmt.Sprintf("%s-auth-prod", objKey.Name), app: "auth", env: "prod"},
+			{name: fmt.Sprintf("%s-payments-dev", objKey.Name), app: "payments", env: "dev"},
+			{name: fmt.Sprintf("%s-payments-staging", objKey.Name), app: "payments", env: "staging"},
+		}
+
+		g.Expect(obj.Status.Inventory).ToNot(BeNil())
+		g.Expect(len(obj.Status.Inventory)).To(Equal(4))
+
+		fetcher := gotkfetch.New(gotkfetch.WithRetries(1), gotkfetch.WithUntar(gotktar.WithMaxUntarSize(gotktar.UnlimitedUntarSize)))
+
+		for _, item := range expectedArtifacts {
+			ea := &sourcev1.ExternalArtifact{}
+			key := client.ObjectKey{Name: item.name, Namespace: obj.Namespace}
+			err = testClient.Get(ctx, key, ea)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			// 1. Label assertion is strictly per-artifact
+			g.Expect(ea.Labels).To(HaveKeyWithValue("app", item.app))
+			g.Expect(ea.Labels).To(HaveKeyWithValue("env", item.env))
+			g.Expect(ea.Status.Artifact).ToNot(BeNil())
+
+			// 2. Artifact contents / Copy paths assertion
+			tmpDir, err := os.MkdirTemp("", "test-artifact-*")
+			g.Expect(err).ToNot(HaveOccurred())
+			defer os.RemoveAll(tmpDir)
+
+			err = fetcher.FetchWithContext(ctx, ea.Status.Artifact.URL, ea.Status.Artifact.Digest, tmpDir)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			// The copy operation should have flattened the apps/{app}/envs/{env} into the root
+			// Verify that the correct app.yaml exists and contains the correct name
+			content, err := os.ReadFile(filepath.Join(tmpDir, "app.yaml"))
+			g.Expect(err).ToNot(HaveOccurred(), "app.yaml was not found in the root of the artifact")
+			g.Expect(string(content)).To(ContainSubstring(fmt.Sprintf("name: %s-%s", item.app, item.env)))
+		}
+	})
+
+	t.Run("removes external artifact when directory is deleted", func(t *testing.T) {
+		g := NewWithT(t)
+
+		// Update Git repository to remove 'payments/envs/staging'
+		gitFiles = []gotktestsrv.File{
+			{Name: "apps/auth/envs/dev/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: auth-dev"},
+			{Name: "apps/auth/envs/prod/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: auth-prod"},
+			{Name: "apps/payments/envs/dev/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments-dev"},
+		}
+		err = applyGitRepository(objKey, "main@sha256:abc12346", gitFiles)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		// Reconcile to process the update
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: objKey,
+		})
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = testClient.Get(ctx, objKey, obj)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(gotkconditions.IsReady(obj)).To(BeTrue())
+
+		// Should now only be 3 items in inventory
+		g.Expect(len(obj.Status.Inventory)).To(Equal(3))
+
+		// Verify the deleted one is gone
+		ea := &sourcev1.ExternalArtifact{}
+		key := client.ObjectKey{Name: fmt.Sprintf("%s-payments-staging", objKey.Name), Namespace: obj.Namespace}
+		err = testClient.Get(ctx, key, ea)
+		g.Expect(err).To(HaveOccurred()) // Should be NotFound
+	})
+
+	t.Run("updates revision selectively on content change", func(t *testing.T) {
+		g := NewWithT(t)
+
+		// Record the current revision of auth-prod
+		eaProd := &sourcev1.ExternalArtifact{}
+		keyProd := client.ObjectKey{Name: fmt.Sprintf("%s-auth-prod", objKey.Name), Namespace: obj.Namespace}
+		err = testClient.Get(ctx, keyProd, eaProd)
+		g.Expect(err).ToNot(HaveOccurred())
+		oldProdRevision := eaProd.Status.Artifact.Revision
+
+		// Record the current revision of auth-dev
+		eaDev := &sourcev1.ExternalArtifact{}
+		keyDev := client.ObjectKey{Name: fmt.Sprintf("%s-auth-dev", objKey.Name), Namespace: obj.Namespace}
+		err = testClient.Get(ctx, keyDev, eaDev)
+		g.Expect(err).ToNot(HaveOccurred())
+		oldDevRevision := eaDev.Status.Artifact.Revision
+
+		// Change only the content of auth-dev
+		gitFiles = []gotktestsrv.File{
+			{Name: "apps/auth/envs/dev/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: auth-dev-updated"},
+			{Name: "apps/auth/envs/prod/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: auth-prod"},
+			{Name: "apps/payments/envs/dev/app.yaml", Body: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments-dev"},
+		}
+		err = applyGitRepository(objKey, "main@sha256:abc12347", gitFiles)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		// Reconcile
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: objKey,
+		})
+		g.Expect(err).ToNot(HaveOccurred())
+
+		// Verify auth-dev changed revision
+		err = testClient.Get(ctx, keyDev, eaDev)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(eaDev.Status.Artifact.Revision).ToNot(Equal(oldDevRevision))
+
+		// Verify auth-prod kept its original revision
+		err = testClient.Get(ctx, keyProd, eaProd)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(eaProd.Status.Artifact.Revision).To(Equal(oldProdRevision))
+	})
 }

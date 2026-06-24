@@ -78,7 +78,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-generator",
 			Namespace: ns.Name,
-		}}, outputArtifact, artifact)
+		}}, outputArtifact, artifact, nil)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	tests := []struct {
@@ -320,6 +320,43 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 			currentDigest:  "test123",
 			expectedDrift:  true,
 			expectedReason: "ExternalArtifactsChanged",
+		},
+		{
+			name: "no drift when pathPattern inventory count differs from templates",
+			obj: &swapi.ArtifactGenerator{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "path-pattern-generator",
+					Namespace:  ns.Name,
+					UID:        "path-pattern-generator",
+					Generation: 1,
+				},
+				Spec: swapi.ArtifactGeneratorSpec{
+					PathPattern: "@test/apps/{app}/envs/{env}",
+					OutputArtifacts: []swapi.OutputArtifact{
+						{
+							Name: "{app}-{env}",
+							Copy: []swapi.CopyOperation{
+								{From: "@test/apps/{app}/envs/{env}/**", To: "@artifact/"},
+							},
+						},
+					},
+				},
+				Status: swapi.ArtifactGeneratorStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               gotkmeta.ReadyCondition,
+							Status:             metav1.ConditionTrue,
+							Reason:             gotkmeta.SucceededReason,
+							ObservedGeneration: 1,
+						},
+					},
+					ObservedSourcesDigest: "test123",
+					Inventory:             nil,
+				},
+			},
+			currentDigest:  "test123",
+			expectedDrift:  false,
+			expectedReason: "NoDriftDetected",
 		},
 	}
 

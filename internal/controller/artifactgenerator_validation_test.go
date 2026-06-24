@@ -31,7 +31,7 @@ import (
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
-func TestResourceSetReconciler_specValidation(t *testing.T) {
+func TestArtifactGeneratorReconciler_specValidation(t *testing.T) {
 	gt := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -230,6 +230,36 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 				obj := getArtifactGenerator(objKey)
 				obj.Spec.OutputArtifacts[0].Copy[0].From = "@git_repo-v2/test.yaml"
 				obj.Spec.OutputArtifacts[0].Copy[0].To = "@artifact/v2/replace.yaml"
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid static artifact name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-invalid-static-artifact-name",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Name = "Invalid Name"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "templated artifact name with pathPattern",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-path-pattern-template-name",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				alias := obj.Spec.Sources[0].Alias
+				obj.Spec.PathPattern = "@" + alias + "/apps/{app}"
+				obj.Spec.OutputArtifacts[0].Name = "{app}"
+				obj.Spec.OutputArtifacts[0].Copy[0].From = "@" + alias + "/apps/{app}/**"
+				obj.Spec.OutputArtifacts[0].Copy[0].To = "@artifact/file.yaml"
 				return obj
 			},
 			expectError: false,

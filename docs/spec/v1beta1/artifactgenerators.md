@@ -227,13 +227,60 @@ spec:
 Sources are watched for changes, and when any source is updated, the controller will
 regenerate the affected artifacts automatically.
 
+### Path Pattern (Directory Discovery)
+
+The `.spec.pathPattern` field allows for dynamic, path-based discovery of artifacts. When specified, the controller will scan the referenced source for directories matching the pattern and dynamically generate one ExternalArtifact for each matched directory.
+
+- `pathPattern` (optional): Specifies a directory traversal pattern within a source in the format `@<alias>/<pattern>`.
+  Named captures in the pattern (e.g., `{app}`, `{env}`) can be used as placeholders in the `artifacts` fields.
+
+When `pathPattern` is used, the generated ExternalArtifacts will automatically have their labels populated with the extracted capture variables.
+
+```yaml
+spec:
+  sources:
+    - alias: monorepo
+      kind: GitRepository
+      name: my-monorepo
+  pathPattern: "@monorepo/apps/{app}/envs/{env}"
+  artifacts:
+    - name: "{app}-{env}"
+      copy:
+        - from: "@monorepo/apps/{app}/envs/{env}/**"
+          to: "@artifact/"
+```
+
+#### Directory Name Constraints
+
+Directory names matched by path pattern captures must comply with
+[Kubernetes label value restrictions](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-semantics):
+
+- Must be 63 characters or fewer
+- Must begin and end with an alphanumeric character (`[a-zA-Z0-9]`)
+- May contain dashes (`-`), underscores (`_`), dots (`.`), and alphanumeric characters
+
+The controller automatically lowercases captured values before using them
+in artifact names and labels. This means a directory named `Auth` will produce
+an artifact with `app=auth`. Copy expressions receive the original captured
+path values so source paths preserve their case.
+
+**Note:** If two directories differ only in case (e.g., `apps/Auth/` and `apps/auth/`),
+they will resolve to the same artifact name after lowercasing. In this case, the
+controller will stall the reconciliation with an error indicating the collision.
+
+If any captured directory name does not conform to the label value restrictions
+(e.g., names starting with a dot like `.hidden`, containing spaces, or exceeding
+63 characters), the reconciliation will fail with a terminal error that includes
+the `pathPattern` and the invalid value.
+
 ### Artifacts
 
 The `.spec.artifacts` field defines the list of ExternalArtifacts to be generated from the sources.
+When `pathPattern` is defined, the artifacts act as templates for each matched directory.
 Each artifact must specify:
 
 - `name` (required): The name of the generated ExternalArtifact resource. It must be unique in the context
-  of the ArtifactGenerator and must conform to Kubernetes resource naming conventions.
+  of the ArtifactGenerator and must conform to Kubernetes resource naming conventions. Supports capture placeholders if `pathPattern` is used.
 - `copy` (required): A list of copy operations to perform from sources to the artifact.
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
@@ -262,10 +309,12 @@ spec:
 
 Each copy operation specifies how to copy files from sources into the generated artifact:
 
-- `from`: Source path in the format `@alias/pattern` where `alias` references 
+- `from`: Source path in the format `@alias/pattern` where `alias` references
   a source and `pattern` is a glob pattern or a specific file/directory path within that source.
+  When `pathPattern` is set, this field may use capture placeholders and must render to this format.
 - `to`: Destination path in the format `@artifact/path` where `artifact` is
   the root of the generated artifact and `path` is the relative path to a file or directory.
+  When `pathPattern` is set, this field may use capture placeholders and must render to this format.
 - `exclude` (optional): A list of glob patterns to filter out from the source selection.
   Any file matched by `from` that also matches an exclude pattern will be ignored.
   Patterns are matched against paths relative to the source alias root or to the
