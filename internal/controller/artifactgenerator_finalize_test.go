@@ -32,7 +32,7 @@ import (
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
-func TestResourceSetReconciler_Finalize(t *testing.T) {
+func TestArtifactGeneratorReconciler_Finalize(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -85,7 +85,7 @@ func TestResourceSetReconciler_Finalize(t *testing.T) {
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 }
 
-func TestResourceSetReconciler_Finalize_Disabled(t *testing.T) {
+func TestArtifactGeneratorReconciler_Finalize_Disabled(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

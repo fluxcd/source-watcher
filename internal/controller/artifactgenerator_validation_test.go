@@ -31,7 +31,7 @@ import (
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
-func TestResourceSetReconciler_specValidation(t *testing.T) {
+func TestArtifactGeneratorReconciler_specValidation(t *testing.T) {
 	gt := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
