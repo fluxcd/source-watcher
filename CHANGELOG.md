@@ -2,6 +2,48 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.2.0
+
+**Release date:** 2026-06-24
+
+This minor release comes with enhancements to the `ArtifactGenerator` API and
+updated Kubernetes and source-controller dependencies.
+
+### ArtifactGenerator
+
+The `ArtifactGenerator` now supports directory discovery through the
+`.spec.pathPattern` field, a `@<alias>/<pattern>` traversal expression whose
+named captures (e.g. `{app}`) can be used as placeholders in the output
+artifact fields.
+
+The API also gains a `.spec.commonMetadata` field for setting common labels and
+annotations on the generated artifacts.
+
+### General updates
+
+In addition, the Kubernetes dependencies have been updated to v1.36 along with
+controller-runtime v0.24, and the source-controller API has been bumped to
+v1.9.0.
+
+Fixes:
+- Fix copy exclude pattern matching
+  [#334](https://github.com/fluxcd/source-watcher/pull/334)
+
+Improvements:
+- Add `.spec.commonMetadata` to ArtifactGenerator
+  [#333](https://github.com/fluxcd/source-watcher/pull/333)
+- Add `.spec.pathPattern` directory discovery to ArtifactGenerator
+  [#341](https://github.com/fluxcd/source-watcher/pull/341)
+- Update to Kubernetes 1.36 and Go 1.26
+  [#335](https://github.com/fluxcd/source-watcher/pull/335)
+- Upgrade source-controller API to v1.9.0
+  [#342](https://github.com/fluxcd/source-watcher/pull/342)
+- Various dependency updates
+  [#336](https://github.com/fluxcd/source-watcher/pull/336)
+  [#338](https://github.com/fluxcd/source-watcher/pull/338)
+  [#339](https://github.com/fluxcd/source-watcher/pull/339)
+  [#340](https://github.com/fluxcd/source-watcher/pull/340)
+
 ## 2.1.1
 
 **Release date:** 2026-03-12
