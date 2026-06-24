@@ -103,20 +103,21 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 		}
 
 		// Extract named captures from the regex match.
-		captures := make(map[string]string)
+		rawCaptures := make(map[string]string)
 		for i, name := range subexpNames {
 			if i != 0 && name != "" {
-				captures[name] = matches[i]
+				rawCaptures[name] = matches[i]
 			}
 		}
 
-		// Run ToLower on all extracted values.
-		for k, v := range captures {
-			captures[k] = strings.ToLower(v)
+		// Run ToLower on all extracted values used in Kubernetes metadata.
+		normalizedCaptures := make(map[string]string, len(rawCaptures))
+		for k, v := range rawCaptures {
+			normalizedCaptures[k] = strings.ToLower(v)
 		}
 
 		// Validate values with content.IsLabelValue.
-		for k, v := range captures {
+		for k, v := range normalizedCaptures {
 			if errs := content.IsLabelValue(v); len(errs) > 0 {
 				return fmt.Errorf(
 					"pathPattern %q: captured value %q for variable %q is not a valid Kubernetes label value: %s",
@@ -126,7 +127,7 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 
 		// Render the OutputArtifacts using the captured variables.
 		for _, oa := range obj.Spec.OutputArtifacts {
-			req, err := renderArtifactRequest(oa, captures)
+			req, err := renderArtifactRequest(oa, normalizedCaptures, rawCaptures)
 			if err != nil {
 				return fmt.Errorf("failed to render artifact %s for match %s: %w", oa.Name, rel, err)
 			}
@@ -159,17 +160,17 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 	return reqs, nil
 }
 
-// renderArtifactRequest creates an artifactRequest by evaluating Go template
-// expressions in the OutputArtifact's Name and Copy fields using the provided captures.
-func renderArtifactRequest(oa swapi.OutputArtifact, captures map[string]string) (artifactRequest, error) {
-	name, err := renderTemplate(oa.Name, captures)
+// renderArtifactRequest creates an artifactRequest by evaluating Go template expressions.
+// Artifact names and labels use normalized captures, while copy paths use raw captures.
+func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptures map[string]string) (artifactRequest, error) {
+	name, err := renderTemplate(oa.Name, normalizedCaptures)
 	if err != nil {
 		return artifactRequest{}, err
 	}
 
 	req := artifactRequest{
 		OutputArtifact: oa,
-		Labels:         captures,
+		Labels:         normalizedCaptures,
 	}
 	req.Name = name
 
@@ -177,12 +178,12 @@ func renderArtifactRequest(oa swapi.OutputArtifact, captures map[string]string) 
 	// and render template expressions in each copy operation.
 	req.Copy = make([]swapi.CopyOperation, len(oa.Copy))
 	for i, copyOp := range oa.Copy {
-		from, err := renderTemplate(copyOp.From, captures)
+		from, err := renderTemplate(copyOp.From, rawCaptures)
 		if err != nil {
 			return artifactRequest{}, err
 		}
 
-		to, err := renderTemplate(copyOp.To, captures)
+		to, err := renderTemplate(copyOp.To, rawCaptures)
 		if err != nil {
 			return artifactRequest{}, err
 		}

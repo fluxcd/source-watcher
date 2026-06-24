@@ -200,7 +200,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 					{
 						Name: "{{ .app }}-{{ .env }}",
 						Copy: []swapi.CopyOperation{
-							{From: "@repo/apps/{{ .app }}/envs/{{ .env }}/**", To: "@artifact/"},
+							{From: "@repo/apps/{{ .app }}/envs/{{ .env }}/**", To: "@artifact/{{ .app }}/{{ .env }}/"},
 						},
 					},
 				},
@@ -218,6 +218,16 @@ func TestBuildArtifactRequests(t *testing.T) {
 			for _, v := range r.Labels {
 				g.Expect(v).To(gomega.Equal(strings.ToLower(v)))
 			}
+
+			switch r.Name {
+			case "auth-dev":
+				g.Expect(r.Copy[0].From).To(gomega.Equal("@repo/apps/Auth/envs/Dev/**"))
+				g.Expect(r.Copy[0].To).To(gomega.Equal("@artifact/Auth/Dev/"))
+			case "payments-prod":
+				g.Expect(r.Copy[0].From).To(gomega.Equal("@repo/apps/Payments/envs/Prod/**"))
+				g.Expect(r.Copy[0].To).To(gomega.Equal("@artifact/Payments/Prod/"))
+			}
+
 		}
 	})
 
