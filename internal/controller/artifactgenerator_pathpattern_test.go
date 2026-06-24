@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 	localSources := map[string]string{
 		"repo": aliasDir,
 	}
+	ctx := context.Background()
 
 	createFile := func(path string) {
 		p := filepath.Join(aliasDir, path)
@@ -66,7 +68,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 				},
 			},
 		}
-		reqs, err := buildArtifactRequests(obj, localSources)
+		reqs, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(reqs).To(gomega.HaveLen(2))
 		g.Expect(reqs[0].Name).To(gomega.Equal("static-1"))
@@ -80,7 +82,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 				PathPattern: "invalid-no-at-sign",
 			},
 		}
-		_, err := buildArtifactRequests(obj, localSources)
+		_, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("invalid pathPattern format"))
 	})
@@ -92,7 +94,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 				PathPattern: "@unknown/apps/{app}",
 			},
 		}
-		_, err := buildArtifactRequests(obj, localSources)
+		_, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not found in local sources"))
 	})
@@ -104,7 +106,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 				PathPattern: "@repo/apps/{_app}",
 			},
 		}
-		_, err := buildArtifactRequests(obj, localSources)
+		_, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("capture variable"))
@@ -118,7 +120,8 @@ func TestBuildArtifactRequests(t *testing.T) {
 			wantErrMsg string
 		}{
 			{name: "empty capture", pattern: "@repo/apps/{}", wantErrMsg: "empty capture variable"},
-			{name: "unsupported capture name", pattern: "@repo/apps/{app-name}", wantErrMsg: "must match [A-Za-z0-9_]+"},
+			{name: "unsupported capture name", pattern: "@repo/apps/{app-name}", wantErrMsg: "valid CEL variable name"},
+			{name: "capture name starts with digit", pattern: "@repo/apps/{1app}", wantErrMsg: "valid CEL variable name"},
 			{name: "missing closing brace", pattern: "@repo/apps/{app", wantErrMsg: "missing closing brace"},
 			{name: "missing opening brace", pattern: "@repo/apps/app}", wantErrMsg: "missing opening brace"},
 			{name: "duplicate capture", pattern: "@repo/apps/{app}/envs/{app}", wantErrMsg: "duplicate capture variable"},
@@ -132,7 +135,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 						PathPattern: tc.pattern,
 					},
 				}
-				_, err := buildArtifactRequests(obj, localSources)
+				_, err := buildArtifactRequests(ctx, obj, localSources)
 				g.Expect(err).To(gomega.HaveOccurred())
 				g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 				g.Expect(err.Error()).To(gomega.ContainSubstring(tc.pattern))
@@ -148,15 +151,15 @@ func TestBuildArtifactRequests(t *testing.T) {
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
 					{
-						Name: "app-{{ .app }}",
+						Name: "'app-' + app",
 						Copy: []swapi.CopyOperation{
-							{From: "apps/{{ .app }}", To: "."},
+							{From: "'apps/' + app", To: "'.'"},
 						},
 					},
 				},
 			},
 		}
-		reqs, err := buildArtifactRequests(obj, localSources)
+		reqs, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(reqs).To(gomega.HaveLen(3)) // auth, payments, and ignore
 
@@ -171,6 +174,22 @@ func TestBuildArtifactRequests(t *testing.T) {
 		}
 	})
 
+	t.Run("missing CEL variable", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{Name: "missing"},
+				},
+			},
+		}
+		_, err := buildArtifactRequests(ctx, obj, localSources)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("failed to evaluate the CEL expression"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("no such attribute"))
+	})
+
 	t.Run("preserves Exclude and Strategy fields", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 		obj := &swapi.ArtifactGenerator{
@@ -178,11 +197,11 @@ func TestBuildArtifactRequests(t *testing.T) {
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
 					{
-						Name: "app-{{ .app }}",
+						Name: "'app-' + app",
 						Copy: []swapi.CopyOperation{
 							{
-								From:     "apps/{{ .app }}",
-								To:       ".",
+								From:     "'apps/' + app",
+								To:       "'.'",
 								Exclude:  []string{"*.md", "tests/"},
 								Strategy: "Merge",
 							},
@@ -191,7 +210,7 @@ func TestBuildArtifactRequests(t *testing.T) {
 				},
 			},
 		}
-		reqs, err := buildArtifactRequests(obj, localSources)
+		reqs, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(reqs).To(gomega.HaveLen(3))
 
@@ -207,11 +226,11 @@ func TestBuildArtifactRequests(t *testing.T) {
 			Spec: swapi.ArtifactGeneratorSpec{
 				PathPattern: "@repo/apps/{app}/envs/{env}",
 				OutputArtifacts: []swapi.OutputArtifact{
-					{Name: "{{ .app }}-{{ .env }}"},
+					{Name: "app + '-' + env"},
 				},
 			},
 		}
-		reqs, err := buildArtifactRequests(obj, localSources)
+		reqs, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(reqs).To(gomega.HaveLen(2)) // only auth/envs/dev and auth/envs/prod, ignore is a file
 
@@ -242,15 +261,15 @@ func TestBuildArtifactRequests(t *testing.T) {
 				PathPattern: "@repo/apps/{app}/envs/{env}",
 				OutputArtifacts: []swapi.OutputArtifact{
 					{
-						Name: "{{ .app }}-{{ .env }}",
+						Name: "app + '-' + env",
 						Copy: []swapi.CopyOperation{
-							{From: "@repo/apps/{{ .app }}/envs/{{ .env }}/**", To: "@artifact/{{ .app }}/{{ .env }}/"},
+							{From: "'@repo/apps/' + app + '/envs/' + env + '/**'", To: "'@artifact/' + app + '/' + env + '/'"},
 						},
 					},
 				},
 			},
 		}
-		reqs, err := buildArtifactRequests(obj, upperSources)
+		reqs, err := buildArtifactRequests(ctx, obj, upperSources)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(reqs).To(gomega.HaveLen(2))
 
@@ -291,11 +310,11 @@ func TestBuildArtifactRequests(t *testing.T) {
 			Spec: swapi.ArtifactGeneratorSpec{
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
-					{Name: "app-{{ .app }}"},
+					{Name: "'app-' + app"},
 				},
 			},
 		}
-		_, err = buildArtifactRequests(obj, dotSources)
+		_, err = buildArtifactRequests(ctx, obj, dotSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes label value"))
@@ -317,11 +336,11 @@ func TestBuildArtifactRequests(t *testing.T) {
 			Spec: swapi.ArtifactGeneratorSpec{
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
-					{Name: "app-{{ .app }}"},
+					{Name: "'app-' + app"},
 				},
 			},
 		}
-		_, err = buildArtifactRequests(obj, spaceSources)
+		_, err = buildArtifactRequests(ctx, obj, spaceSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes label value"))
@@ -344,11 +363,11 @@ func TestBuildArtifactRequests(t *testing.T) {
 			Spec: swapi.ArtifactGeneratorSpec{
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
-					{Name: "app-{{ .app }}"},
+					{Name: "'app-' + app"},
 				},
 			},
 		}
-		_, err = buildArtifactRequests(obj, longSources)
+		_, err = buildArtifactRequests(ctx, obj, longSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes label value"))
@@ -370,12 +389,12 @@ func TestBuildArtifactRequests(t *testing.T) {
 			Spec: swapi.ArtifactGeneratorSpec{
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
-					// Template produces "auth..invalid" which is not a valid DNS subdomain.
-					{Name: "{{ .app }}..invalid"},
+					// CEL expression produces "auth..invalid" which is not a valid DNS subdomain.
+					{Name: "app + '..invalid'"},
 				},
 			},
 		}
-		_, err = buildArtifactRequests(obj, dnsSources)
+		_, err = buildArtifactRequests(ctx, obj, dnsSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes object name"))
@@ -399,11 +418,11 @@ func TestBuildArtifactRequests(t *testing.T) {
 			Spec: swapi.ArtifactGeneratorSpec{
 				PathPattern: "@repo/apps/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
-					{Name: "app-{{ .app }}"},
+					{Name: "'app-' + app"},
 				},
 			},
 		}
-		_, err = buildArtifactRequests(obj, dupSources)
+		_, err = buildArtifactRequests(ctx, obj, dupSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("both resolve to artifact name"))

@@ -79,9 +79,11 @@ spec:
                           from:
                             description: |-
                               From specifies the source (by alias) and the glob pattern to match files.
-                              The format is "@<alias>/<glob-pattern>".
+                              The format is "@<alias>/<glob-pattern>". When pathPattern is set,
+                              this field is evaluated as a CEL string expression.
                             maxLength: 1024
-                            pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
+                            minLength: 1
+                            pattern: ^(@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)|.*['"+].*)$
                             type: string
                           strategy:
                             description: |-
@@ -101,9 +103,11 @@ spec:
                             description: |-
                               To specifies the destination path within the artifact.
                               The format is "@artifact/path", the alias "artifact"
-                              refers to the root path of the generated artifact.
+                              refers to the root path of the generated artifact. When pathPattern
+                              is set, this field is evaluated as a CEL string expression.
                             maxLength: 1024
-                            pattern: ^@(artifact)/(.*)$
+                            minLength: 1
+                            pattern: ^(@(artifact)/(.*)|.*['"+].*)$
                             type: string
                         required:
                         - from
@@ -112,9 +116,11 @@ spec:
                       minItems: 1
                       type: array
                     name:
-                      description: Name is the name of the generated artifact.
+                      description: |-
+                        Name is the name of the generated artifact.
+                        When pathPattern is set, this field is evaluated as a CEL string expression.
                       maxLength: 253
-                      pattern: ^[a-zA-Z0-9{]([a-zA-Z0-9\-\{\}\.\s]*[a-zA-Z0-9}])?$
+                      minLength: 1
                       type: string
                     originRevision:
                       description: |-
@@ -163,7 +169,7 @@ spec:
                 description: |-
                   PathPattern specifies a directory traversal pattern to match within the sources.
                   The format is "@<alias>/<pattern>". Named captures in the pattern (e.g. "{app}")
-                  can be used as Go template variables in OutputArtifacts fields.
+                  are injected as string variables into OutputArtifacts CEL expressions.
                 maxLength: 1024
                 pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
                 type: string
@@ -221,7 +227,7 @@ spec:
             x-kubernetes-validations:
             - message: artifact names must be valid Kubernetes object names when pathPattern
                 is not set
-              rule: has(self.pathPattern) && self.pathPattern != '' || self.artifacts.all(a,
+              rule: has(self.pathPattern) && size(self.pathPattern) > 0 || self.artifacts.all(a,
                 a.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'))
           status:
             description: ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.

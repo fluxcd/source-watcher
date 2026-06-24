@@ -17,14 +17,14 @@ limitations under the License.
 package controller
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"text/template"
 
+	gotkcel "github.com/fluxcd/pkg/runtime/cel"
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -35,11 +35,11 @@ type artifactRequest struct {
 	Labels map[string]string
 }
 
-var pathPatternCaptureNameRe = regexp.MustCompile("^[A-Za-z0-9_]+$")
+var pathPatternCaptureNameRe = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*$")
 
 // buildArtifactRequests expands the PathPattern into multiple artifact requests if specified.
 // Otherwise, it returns the OutputArtifacts exactly as defined in the spec.
-func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string]string) ([]artifactRequest, error) {
+func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, localSources map[string]string) ([]artifactRequest, error) {
 	if obj.Spec.PathPattern == "" {
 		reqs := make([]artifactRequest, 0, len(obj.Spec.OutputArtifacts))
 		for _, oa := range obj.Spec.OutputArtifacts {
@@ -140,7 +140,7 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 
 		// Render the OutputArtifacts using the captured variables.
 		for _, oa := range obj.Spec.OutputArtifacts {
-			req, err := renderArtifactRequest(oa, normalizedCaptures, rawCaptures)
+			req, err := renderArtifactRequest(ctx, oa, normalizedCaptures, rawCaptures)
 			if err != nil {
 				return fmt.Errorf("failed to render artifact %s for match %s: %w", oa.Name, rel, err)
 			}
@@ -188,7 +188,10 @@ func validatePathPatternCaptures(pathPattern, patternStr string) error {
 				return fmt.Errorf("pathPattern %q: empty capture variable", pathPattern)
 			}
 			if !pathPatternCaptureNameRe.MatchString(name) {
-				return fmt.Errorf("pathPattern %q: capture variable %q must match [A-Za-z0-9_]+", pathPattern, name)
+				return fmt.Errorf("pathPattern %q: capture variable %q must be a valid CEL variable name matching [A-Za-z_][A-Za-z0-9_]*", pathPattern, name)
+			}
+			if !isCELStringVariableName(name) {
+				return fmt.Errorf("pathPattern %q: capture variable %q is not a valid CEL string variable name", pathPattern, name)
 			}
 			if _, ok := seen[name]; ok {
 				return fmt.Errorf("pathPattern %q: duplicate capture variable %q", pathPattern, name)
@@ -202,10 +205,10 @@ func validatePathPatternCaptures(pathPattern, patternStr string) error {
 	return nil
 }
 
-// renderArtifactRequest creates an artifactRequest by evaluating Go template expressions.
+// renderArtifactRequest creates an artifactRequest by evaluating CEL expressions.
 // Artifact names and labels use normalized captures, while copy paths use raw captures.
-func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptures map[string]string) (artifactRequest, error) {
-	name, err := renderTemplate(oa.Name, normalizedCaptures)
+func renderArtifactRequest(ctx context.Context, oa swapi.OutputArtifact, normalizedCaptures, rawCaptures map[string]string) (artifactRequest, error) {
+	name, err := renderCELString(ctx, oa.Name, normalizedCaptures)
 	if err != nil {
 		return artifactRequest{}, err
 	}
@@ -217,15 +220,15 @@ func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptu
 	req.Name = name
 
 	// Deep copy the Copy slice to avoid mutating the original OutputArtifact spec,
-	// and render template expressions in each copy operation.
+	// and evaluate CEL expressions in each copy operation.
 	req.Copy = make([]swapi.CopyOperation, len(oa.Copy))
 	for i, copyOp := range oa.Copy {
-		from, err := renderTemplate(copyOp.From, rawCaptures)
+		from, err := renderCELString(ctx, copyOp.From, rawCaptures)
 		if err != nil {
 			return artifactRequest{}, err
 		}
 
-		to, err := renderTemplate(copyOp.To, rawCaptures)
+		to, err := renderCELString(ctx, copyOp.To, rawCaptures)
 		if err != nil {
 			return artifactRequest{}, err
 		}
@@ -241,19 +244,27 @@ func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptu
 	return req, nil
 }
 
-// renderTemplate evaluates a Go template string with the provided data map.
-// If the string does not contain any template delimiters, it is returned as-is.
-func renderTemplate(tmplStr string, data map[string]string) (string, error) {
-	if !strings.Contains(tmplStr, "{{") {
-		return tmplStr, nil
-	}
-	tmpl, err := template.New("").Parse(tmplStr)
+func renderCELString(ctx context.Context, expr string, data map[string]string) (string, error) {
+	celExpr, err := gotkcel.NewExpression(expr)
 	if err != nil {
 		return "", err
 	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", err
+	return celExpr.EvaluateString(ctx, celActivation(data))
+}
+
+func celActivation(data map[string]string) map[string]any {
+	activation := make(map[string]any, len(data))
+	for k, v := range data {
+		activation[k] = v
 	}
-	return buf.String(), nil
+	return activation
+}
+
+func isCELStringVariableName(name string) bool {
+	expr, err := gotkcel.NewExpression(name)
+	if err != nil {
+		return false
+	}
+	got, err := expr.EvaluateString(context.Background(), map[string]any{name: "test"})
+	return err == nil && got == "test"
 }
