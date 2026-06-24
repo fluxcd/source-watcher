@@ -74,6 +74,13 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 	}
 
 	subexpNames := matcher.SubexpNames()
+	for _, name := range subexpNames[1:] {
+		if errs := content.IsLabelKey(name); len(errs) > 0 {
+			return nil, fmt.Errorf(
+				"pathPattern %q: capture variable %q is not a valid Kubernetes label key: %s",
+				obj.Spec.PathPattern, name, strings.Join(errs, "; "))
+		}
+	}
 
 	var reqs []artifactRequest
 	// Track rendered artifact names to detect collisions after lowercasing.

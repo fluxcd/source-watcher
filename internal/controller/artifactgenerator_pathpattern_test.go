@@ -97,6 +97,20 @@ func TestBuildArtifactRequests(t *testing.T) {
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not found in local sources"))
 	})
 
+	t.Run("invalid capture label key", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{_app}",
+			},
+		}
+		_, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("capture variable"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes label key"))
+	})
+
 	t.Run("single capture pattern", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 		obj := &swapi.ArtifactGenerator{
