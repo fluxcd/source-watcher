@@ -108,9 +108,28 @@ func TestBuildArtifactRequests(t *testing.T) {
 		}
 		_, err := buildArtifactRequests(ctx, obj, localSources)
 		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(isTerminalPathPatternError(err)).To(gomega.BeTrue())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("capture variable"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes label key"))
+	})
+
+	t.Run("source walk error is not terminal", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{Name: "'app-' + app"},
+				},
+			},
+		}
+		_, err := buildArtifactRequests(ctx, obj, map[string]string{
+			"repo": filepath.Join(tmpDir, "does-not-exist"),
+		})
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(isTerminalPathPatternError(err)).To(gomega.BeFalse())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("failed to walk source directory"))
 	})
 
 	t.Run("invalid capture syntax", func(t *testing.T) {

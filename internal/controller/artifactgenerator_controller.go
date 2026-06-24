@@ -201,6 +201,12 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	reqs, err := buildArtifactRequests(ctx, obj, localSources)
 	if err != nil {
 		msg := fmt.Sprintf("failed to expand path pattern: %s", err.Error())
+		if isTerminalPathPatternError(err) {
+			return ctrl.Result{}, r.newTerminalErrorFor(obj,
+				gotkmeta.BuildFailedReason,
+				"%s", msg)
+		}
+		gotkconditions.Delete(obj, gotkmeta.StalledCondition)
 		gotkconditions.MarkFalse(obj,
 			gotkmeta.ReadyCondition,
 			gotkmeta.BuildFailedReason,

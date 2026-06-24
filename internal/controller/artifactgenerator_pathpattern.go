@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -37,6 +38,27 @@ type artifactRequest struct {
 
 var pathPatternCaptureNameRe = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*$")
 
+type terminalPathPatternError struct {
+	err error
+}
+
+func (e *terminalPathPatternError) Error() string {
+	return e.err.Error()
+}
+
+func (e *terminalPathPatternError) Unwrap() error {
+	return e.err
+}
+
+func newTerminalPathPatternError(format string, args ...any) error {
+	return &terminalPathPatternError{err: fmt.Errorf(format, args...)}
+}
+
+func isTerminalPathPatternError(err error) bool {
+	var terminalErr *terminalPathPatternError
+	return errors.As(err, &terminalErr)
+}
+
 // buildArtifactRequests expands the PathPattern into multiple artifact requests if specified.
 // Otherwise, it returns the OutputArtifacts exactly as defined in the spec.
 func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, localSources map[string]string) ([]artifactRequest, error) {
@@ -54,7 +76,7 @@ func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, lo
 	// Parse @<alias>/<pattern>
 	parts := strings.SplitN(obj.Spec.PathPattern, "/", 2)
 	if len(parts) != 2 || !strings.HasPrefix(parts[0], "@") {
-		return nil, fmt.Errorf("invalid pathPattern format: %s", obj.Spec.PathPattern)
+		return nil, newTerminalPathPatternError("invalid pathPattern format: %s", obj.Spec.PathPattern)
 	}
 
 	alias := strings.TrimPrefix(parts[0], "@")
@@ -62,27 +84,27 @@ func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, lo
 
 	srcDir, ok := localSources[alias]
 	if !ok {
-		return nil, fmt.Errorf("source alias %s not found in local sources", alias)
+		return nil, newTerminalPathPatternError("pathPattern %q: source alias %s not found in local sources", obj.Spec.PathPattern, alias)
 	}
 
 	// Convert the path pattern (e.g. "apps/{app}/envs/{env}") to a regex
 	// with named capture groups (e.g. "^apps/(?P<app>[^/]+)/envs/(?P<env>[^/]+)$").
 	escaped := regexp.QuoteMeta(patternStr)
 	if err := validatePathPatternCaptures(obj.Spec.PathPattern, patternStr); err != nil {
-		return nil, err
+		return nil, newTerminalPathPatternError("%w", err)
 	}
 
 	captureRe := regexp.MustCompile(`\\\{([a-zA-Z0-9_]+)\\\}`)
 	regexStr := "^" + captureRe.ReplaceAllString(escaped, `(?P<$1>[^/]+)`) + "$"
 	matcher, err := regexp.Compile(regexStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile path pattern: %w", err)
+		return nil, newTerminalPathPatternError("pathPattern %q: failed to compile path pattern: %w", obj.Spec.PathPattern, err)
 	}
 
 	subexpNames := matcher.SubexpNames()
 	for _, name := range subexpNames[1:] {
 		if errs := content.IsLabelKey(name); len(errs) > 0 {
-			return nil, fmt.Errorf(
+			return nil, newTerminalPathPatternError(
 				"pathPattern %q: capture variable %q is not a valid Kubernetes label key: %s",
 				obj.Spec.PathPattern, name, strings.Join(errs, "; "))
 		}
@@ -132,7 +154,7 @@ func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, lo
 		// Validate values with content.IsLabelValue.
 		for k, v := range normalizedCaptures {
 			if errs := content.IsLabelValue(v); len(errs) > 0 {
-				return fmt.Errorf(
+				return newTerminalPathPatternError(
 					"pathPattern %q: captured value %q for variable %q is not a valid Kubernetes label value: %s",
 					obj.Spec.PathPattern, v, k, strings.Join(errs, "; "))
 			}
@@ -142,19 +164,19 @@ func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, lo
 		for _, oa := range obj.Spec.OutputArtifacts {
 			req, err := renderArtifactRequest(ctx, oa, normalizedCaptures, rawCaptures)
 			if err != nil {
-				return fmt.Errorf("failed to render artifact %s for match %s: %w", oa.Name, rel, err)
+				return newTerminalPathPatternError("pathPattern %q: failed to render artifact %s for match %s: %w", obj.Spec.PathPattern, oa.Name, rel, err)
 			}
 
 			// Validate rendered EA name with NameIsDNSSubdomain.
 			if errs := apivalidation.NameIsDNSSubdomain(req.Name, false); len(errs) > 0 {
-				return fmt.Errorf(
+				return newTerminalPathPatternError(
 					"pathPattern %q: rendered artifact name %q is not a valid Kubernetes object name: %s",
 					obj.Spec.PathPattern, req.Name, strings.Join(errs, "; "))
 			}
 
 			// Validate for duplicate names.
 			if prevDir, exists := seenNames[req.Name]; exists {
-				return fmt.Errorf(
+				return newTerminalPathPatternError(
 					"pathPattern %q: directories %q and %q both resolve to artifact name %q",
 					obj.Spec.PathPattern, prevDir, rel, req.Name)
 			}
@@ -167,6 +189,9 @@ func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, lo
 	})
 
 	if err != nil {
+		if isTerminalPathPatternError(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to walk source directory: %w", err)
 	}
 

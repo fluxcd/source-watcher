@@ -531,6 +531,63 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 	}
 }
 
+func TestArtifactGeneratorReconciler_PathPatternBuildFailedTerminal(t *testing.T) {
+	g := NewWithT(t)
+	reconciler := getArtifactGeneratorReconciler()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ns, err := testEnv.CreateNamespace(ctx, "test-pattern-build-failed")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	objKey := client.ObjectKey{
+		Name:      "test-pattern-build-failed",
+		Namespace: ns.Name,
+	}
+	obj := getArtifactGenerator(objKey)
+	obj.Spec.Sources = []swapi.SourceReference{
+		{
+			Alias: fmt.Sprintf("%s-git", objKey.Name),
+			Kind:  sourcev1.GitRepositoryKind,
+			Name:  objKey.Name,
+		},
+	}
+	obj.Spec.PathPattern = fmt.Sprintf("@%s-git/apps/{app}", objKey.Name)
+	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{
+		{
+			Name: fmt.Sprintf("%q + '-' + app", objKey.Name),
+			Copy: []swapi.CopyOperation{
+				{From: fmt.Sprintf("'@%s-git/apps/' + app + '/**'", objKey.Name), To: "'@artifact/'"},
+			},
+		},
+	}
+
+	err = testClient.Create(ctx, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	err = applyGitRepository(objKey, "main@sha256:buildfailed", []gotktestsrv.File{
+		{Name: "apps/.hidden/app.yaml", Body: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test"},
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	r, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(r.RequeueAfter).To(BeEquivalentTo(time.Millisecond))
+
+	r, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(errors.Is(err, reconcile.TerminalError(nil))).To(BeTrue())
+	g.Expect(r.RequeueAfter).To(BeZero())
+
+	err = testClient.Get(ctx, objKey, obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(gotkconditions.IsStalled(obj)).To(BeTrue())
+	g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(gotkmeta.BuildFailedReason))
+	g.Expect(gotkconditions.GetMessage(obj, gotkmeta.ReadyCondition)).To(ContainSubstring("failed to expand path pattern"))
+	g.Expect(gotkconditions.GetMessage(obj, gotkmeta.ReadyCondition)).To(ContainSubstring("pathPattern"))
+	g.Expect(gotkconditions.GetMessage(obj, gotkmeta.ReadyCondition)).To(ContainSubstring("not a valid Kubernetes label value"))
+}
+
 func TestArtifactGeneratorReconciler_CommonMetadata(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
