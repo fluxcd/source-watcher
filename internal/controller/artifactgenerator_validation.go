@@ -19,6 +19,8 @@ package controller
 import (
 	"strings"
 
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
@@ -52,6 +54,15 @@ func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator)
 			return r.newTerminalErrorFor(obj,
 				swapi.ValidationFailedReason,
 				"duplicate artifact name '%s' found", artifact.Name)
+		}
+
+		if obj.Spec.PathPattern == "" {
+			if errs := apivalidation.NameIsDNSSubdomain(artifact.Name, false); len(errs) > 0 {
+				return r.newTerminalErrorFor(obj,
+					swapi.ValidationFailedReason,
+					"artifact name %q is not a valid Kubernetes object name: %s",
+					artifact.Name, strings.Join(errs, "; "))
+			}
 		}
 
 		// Check that the revision source alias exists.

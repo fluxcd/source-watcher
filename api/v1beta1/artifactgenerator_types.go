@@ -54,6 +54,7 @@ type CommonMetadata struct {
 }
 
 // ArtifactGeneratorSpec defines the desired state of ArtifactGenerator.
+// +kubebuilder:validation:XValidation:rule="has(self.pathPattern) && self.pathPattern != '' || self.artifacts.all(a, a.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'))",message="artifact names must be valid Kubernetes object names when pathPattern is not set"
 type ArtifactGeneratorSpec struct {
 	// CommonMetadata specifies the common labels and annotations that are
 	// applied to all resources. Any existing label or annotation will be

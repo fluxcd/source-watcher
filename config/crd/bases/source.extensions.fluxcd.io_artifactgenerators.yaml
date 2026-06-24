@@ -218,6 +218,11 @@ spec:
             - artifacts
             - sources
             type: object
+            x-kubernetes-validations:
+            - message: artifact names must be valid Kubernetes object names when pathPattern
+                is not set
+              rule: has(self.pathPattern) && self.pathPattern != '' || self.artifacts.all(a,
+                a.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'))
           status:
             description: ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.
             properties:
