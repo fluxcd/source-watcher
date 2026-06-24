@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -25,7 +24,6 @@ import (
 	"regexp"
 	"strings"
 
-	gotkcel "github.com/fluxcd/pkg/runtime/cel"
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -61,7 +59,7 @@ func isTerminalPathPatternError(err error) bool {
 
 // buildArtifactRequests expands the PathPattern into multiple artifact requests if specified.
 // Otherwise, it returns the OutputArtifacts exactly as defined in the spec.
-func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, localSources map[string]string) ([]artifactRequest, error) {
+func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string]string) ([]artifactRequest, error) {
 	if obj.Spec.PathPattern == "" {
 		reqs := make([]artifactRequest, 0, len(obj.Spec.OutputArtifacts))
 		for _, oa := range obj.Spec.OutputArtifacts {
@@ -162,7 +160,7 @@ func buildArtifactRequests(ctx context.Context, obj *swapi.ArtifactGenerator, lo
 
 		// Render the OutputArtifacts using the captured variables.
 		for _, oa := range obj.Spec.OutputArtifacts {
-			req, err := renderArtifactRequest(ctx, oa, normalizedCaptures, rawCaptures)
+			req, err := renderArtifactRequest(oa, normalizedCaptures, rawCaptures)
 			if err != nil {
 				return newTerminalPathPatternError("pathPattern %q: failed to render artifact %s for match %s: %w", obj.Spec.PathPattern, oa.Name, rel, err)
 			}
@@ -213,10 +211,7 @@ func validatePathPatternCaptures(pathPattern, patternStr string) error {
 				return fmt.Errorf("pathPattern %q: empty capture variable", pathPattern)
 			}
 			if !pathPatternCaptureNameRe.MatchString(name) {
-				return fmt.Errorf("pathPattern %q: capture variable %q must be a valid CEL variable name matching [A-Za-z_][A-Za-z0-9_]*", pathPattern, name)
-			}
-			if !isCELStringVariableName(name) {
-				return fmt.Errorf("pathPattern %q: capture variable %q is not a valid CEL string variable name", pathPattern, name)
+				return fmt.Errorf("pathPattern %q: capture variable %q must be a valid capture name matching [A-Za-z_][A-Za-z0-9_]*", pathPattern, name)
 			}
 			if _, ok := seen[name]; ok {
 				return fmt.Errorf("pathPattern %q: duplicate capture variable %q", pathPattern, name)
@@ -230,10 +225,10 @@ func validatePathPatternCaptures(pathPattern, patternStr string) error {
 	return nil
 }
 
-// renderArtifactRequest creates an artifactRequest by evaluating CEL expressions.
+// renderArtifactRequest creates an artifactRequest by substituting capture placeholders.
 // Artifact names and labels use normalized captures, while copy paths use raw captures.
-func renderArtifactRequest(ctx context.Context, oa swapi.OutputArtifact, normalizedCaptures, rawCaptures map[string]string) (artifactRequest, error) {
-	name, err := renderCELString(ctx, oa.Name, normalizedCaptures)
+func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptures map[string]string) (artifactRequest, error) {
+	name, err := renderTemplateString(oa.Name, normalizedCaptures)
 	if err != nil {
 		return artifactRequest{}, err
 	}
@@ -245,15 +240,15 @@ func renderArtifactRequest(ctx context.Context, oa swapi.OutputArtifact, normali
 	req.Name = name
 
 	// Deep copy the Copy slice to avoid mutating the original OutputArtifact spec,
-	// and evaluate CEL expressions in each copy operation.
+	// and substitute capture placeholders in each copy operation.
 	req.Copy = make([]swapi.CopyOperation, len(oa.Copy))
 	for i, copyOp := range oa.Copy {
-		from, err := renderCELString(ctx, copyOp.From, rawCaptures)
+		from, err := renderTemplateString(copyOp.From, rawCaptures)
 		if err != nil {
 			return artifactRequest{}, err
 		}
 
-		to, err := renderCELString(ctx, copyOp.To, rawCaptures)
+		to, err := renderTemplateString(copyOp.To, rawCaptures)
 		if err != nil {
 			return artifactRequest{}, err
 		}
@@ -269,27 +264,33 @@ func renderArtifactRequest(ctx context.Context, oa swapi.OutputArtifact, normali
 	return req, nil
 }
 
-func renderCELString(ctx context.Context, expr string, data map[string]string) (string, error) {
-	celExpr, err := gotkcel.NewExpression(expr)
-	if err != nil {
-		return "", err
+func renderTemplateString(tmpl string, data map[string]string) (string, error) {
+	var b strings.Builder
+	for i := 0; i < len(tmpl); i++ {
+		switch tmpl[i] {
+		case '{':
+			end := strings.IndexByte(tmpl[i+1:], '}')
+			if end < 0 {
+				return "", fmt.Errorf("invalid template %q: capture starting at offset %d is missing closing brace", tmpl, i)
+			}
+			name := tmpl[i+1 : i+1+end]
+			if name == "" {
+				return "", fmt.Errorf("invalid template %q: empty capture variable", tmpl)
+			}
+			if !pathPatternCaptureNameRe.MatchString(name) {
+				return "", fmt.Errorf("invalid template %q: capture variable %q must be a valid capture name matching [A-Za-z_][A-Za-z0-9_]*", tmpl, name)
+			}
+			value, ok := data[name]
+			if !ok {
+				return "", fmt.Errorf("invalid template %q: capture variable %q is not defined by pathPattern", tmpl, name)
+			}
+			b.WriteString(value)
+			i += end + 1
+		case '}':
+			return "", fmt.Errorf("invalid template %q: capture ending at offset %d is missing opening brace", tmpl, i)
+		default:
+			b.WriteByte(tmpl[i])
+		}
 	}
-	return celExpr.EvaluateString(ctx, celActivation(data))
-}
-
-func celActivation(data map[string]string) map[string]any {
-	activation := make(map[string]any, len(data))
-	for k, v := range data {
-		activation[k] = v
-	}
-	return activation
-}
-
-func isCELStringVariableName(name string) bool {
-	expr, err := gotkcel.NewExpression(name)
-	if err != nil {
-		return false
-	}
-	got, err := expr.EvaluateString(context.Background(), map[string]any{name: "test"})
-	return err == nil && got == "test"
+	return b.String(), nil
 }

@@ -80,10 +80,10 @@ spec:
                             description: |-
                               From specifies the source (by alias) and the glob pattern to match files.
                               The format is "@<alias>/<glob-pattern>". When pathPattern is set,
-                              this field is evaluated as a CEL string expression.
+                              the path may use capture placeholders such as "{app}".
                             maxLength: 1024
                             minLength: 1
-                            pattern: ^(@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)|.*['"+].*)$
+                            pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
                             type: string
                           strategy:
                             description: |-
@@ -104,10 +104,10 @@ spec:
                               To specifies the destination path within the artifact.
                               The format is "@artifact/path", the alias "artifact"
                               refers to the root path of the generated artifact. When pathPattern
-                              is set, this field is evaluated as a CEL string expression.
+                              is set, the path may use capture placeholders such as "{app}".
                             maxLength: 1024
                             minLength: 1
-                            pattern: ^(@(artifact)/(.*)|.*['"+].*)$
+                            pattern: ^@(artifact)/(.*)$
                             type: string
                         required:
                         - from
@@ -118,7 +118,7 @@ spec:
                     name:
                       description: |-
                         Name is the name of the generated artifact.
-                        When pathPattern is set, this field is evaluated as a CEL string expression.
+                        When pathPattern is set, this field may use capture placeholders such as "{app}".
                       maxLength: 253
                       minLength: 1
                       type: string
@@ -169,7 +169,7 @@ spec:
                 description: |-
                   PathPattern specifies a directory traversal pattern to match within the sources.
                   The format is "@<alias>/<pattern>". Named captures in the pattern (e.g. "{app}")
-                  are injected as string variables into OutputArtifacts CEL expressions.
+                  can be used as placeholders in OutputArtifacts fields.
                 maxLength: 1024
                 pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
                 type: string

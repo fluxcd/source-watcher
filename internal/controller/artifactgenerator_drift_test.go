@@ -334,9 +334,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 					PathPattern: "@test/apps/{app}/envs/{env}",
 					OutputArtifacts: []swapi.OutputArtifact{
 						{
-							Name: "app + '-' + env",
+							Name: "{app}-{env}",
 							Copy: []swapi.CopyOperation{
-								{From: "'@test/apps/' + app + '/envs/' + env + '/**'", To: "'@artifact/'"},
+								{From: "@test/apps/{app}/envs/{env}/**", To: "@artifact/"},
 							},
 						},
 					},

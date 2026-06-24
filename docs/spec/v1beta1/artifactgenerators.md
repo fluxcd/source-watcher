@@ -232,8 +232,7 @@ regenerate the affected artifacts automatically.
 The `.spec.pathPattern` field allows for dynamic, path-based discovery of artifacts. When specified, the controller will scan the referenced source for directories matching the pattern and dynamically generate one ExternalArtifact for each matched directory.
 
 - `pathPattern` (optional): Specifies a directory traversal pattern within a source in the format `@<alias>/<pattern>`.
-  Named captures in the pattern (e.g., `{app}`, `{env}`) are injected as string variables into CEL expressions in the `artifacts` fields.
-  The `pathPattern` itself is not a CEL expression.
+  Named captures in the pattern (e.g., `{app}`, `{env}`) can be used as placeholders in the `artifacts` fields.
 
 When `pathPattern` is used, the generated ExternalArtifacts will automatically have their labels populated with the extracted capture variables.
 
@@ -245,10 +244,10 @@ spec:
       name: my-monorepo
   pathPattern: "@monorepo/apps/{app}/envs/{env}"
   artifacts:
-    - name: "app + '-' + env"
+    - name: "{app}-{env}"
       copy:
-        - from: "'@monorepo/apps/' + app + '/envs/' + env + '/**'"
-          to: "'@artifact/'"
+        - from: "@monorepo/apps/{app}/envs/{env}/**"
+          to: "@artifact/"
 ```
 
 #### Directory Name Constraints
@@ -277,11 +276,11 @@ the `pathPattern` and the invalid value.
 ### Artifacts
 
 The `.spec.artifacts` field defines the list of ExternalArtifacts to be generated from the sources.
-When `pathPattern` is defined, the artifacts act as expression templates for each matched directory.
+When `pathPattern` is defined, the artifacts act as templates for each matched directory.
 Each artifact must specify:
 
 - `name` (required): The name of the generated ExternalArtifact resource. It must be unique in the context
-  of the ArtifactGenerator and must conform to Kubernetes resource naming conventions. Supports CEL expressions if `pathPattern` is used.
+  of the ArtifactGenerator and must conform to Kubernetes resource naming conventions. Supports capture placeholders if `pathPattern` is used.
 - `copy` (required): A list of copy operations to perform from sources to the artifact.
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
@@ -312,10 +311,10 @@ Each copy operation specifies how to copy files from sources into the generated 
 
 - `from`: Source path in the format `@alias/pattern` where `alias` references
   a source and `pattern` is a glob pattern or a specific file/directory path within that source.
-  When `pathPattern` is set, this field is a CEL string expression that must evaluate to this format.
+  When `pathPattern` is set, this field may use capture placeholders and must render to this format.
 - `to`: Destination path in the format `@artifact/path` where `artifact` is
   the root of the generated artifact and `path` is the relative path to a file or directory.
-  When `pathPattern` is set, this field is a CEL string expression that must evaluate to this format.
+  When `pathPattern` is set, this field may use capture placeholders and must render to this format.
 - `exclude` (optional): A list of glob patterns to filter out from the source selection.
   Any file matched by `from` that also matches an exclude pattern will be ignored.
   Patterns are matched against paths relative to the source alias root or to the

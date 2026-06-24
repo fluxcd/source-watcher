@@ -555,9 +555,9 @@ func TestArtifactGeneratorReconciler_PathPatternBuildFailedTerminal(t *testing.T
 	obj.Spec.PathPattern = fmt.Sprintf("@%s-git/apps/{app}", objKey.Name)
 	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{
 		{
-			Name: fmt.Sprintf("%q + '-' + app", objKey.Name),
+			Name: fmt.Sprintf("%s-{app}", objKey.Name),
 			Copy: []swapi.CopyOperation{
-				{From: fmt.Sprintf("'@%s-git/apps/' + app + '/**'", objKey.Name), To: "'@artifact/'"},
+				{From: fmt.Sprintf("@%s-git/apps/{app}/**", objKey.Name), To: "@artifact/"},
 			},
 		},
 	}
@@ -934,11 +934,11 @@ func TestArtifactGeneratorReconciler_PathPattern(t *testing.T) {
 	obj.Spec.PathPattern = fmt.Sprintf("@%s-git/apps/{app}/envs/{env}", objKey.Name)
 	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{
 		{
-			Name: fmt.Sprintf("%q + '-' + app + '-' + env", objKey.Name),
+			Name: fmt.Sprintf("%s-{app}-{env}", objKey.Name),
 			Copy: []swapi.CopyOperation{
 				{
-					From: fmt.Sprintf("'@%s-git/apps/' + app + '/envs/' + env + '/**'", objKey.Name),
-					To:   "'@artifact/'",
+					From: fmt.Sprintf("@%s-git/apps/{app}/envs/{env}/**", objKey.Name),
+					To:   "@artifact/",
 				},
 			},
 		},

@@ -248,7 +248,7 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "CEL artifact name with pathPattern",
+			name: "templated artifact name with pathPattern",
 			setupObj: func() *swapi.ArtifactGenerator {
 				objKey := client.ObjectKey{
 					Name:      "test-path-pattern-template-name",
@@ -257,9 +257,9 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 				obj := getArtifactGenerator(objKey)
 				alias := obj.Spec.Sources[0].Alias
 				obj.Spec.PathPattern = "@" + alias + "/apps/{app}"
-				obj.Spec.OutputArtifacts[0].Name = "app"
-				obj.Spec.OutputArtifacts[0].Copy[0].From = "'@" + alias + "/apps/' + app + '/**'"
-				obj.Spec.OutputArtifacts[0].Copy[0].To = "'@artifact/file.yaml'"
+				obj.Spec.OutputArtifacts[0].Name = "{app}"
+				obj.Spec.OutputArtifacts[0].Copy[0].From = "@" + alias + "/apps/{app}/**"
+				obj.Spec.OutputArtifacts[0].Copy[0].To = "@artifact/file.yaml"
 				return obj
 			},
 			expectError: false,

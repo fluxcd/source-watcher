@@ -198,7 +198,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// <storage-root>/<kind>/<namespace>/<name>/<contents-hash>.tar.gz
 	artifactBuilder := builder.New(r.Storage)
 
-	reqs, err := buildArtifactRequests(ctx, obj, localSources)
+	reqs, err := buildArtifactRequests(obj, localSources)
 	if err != nil {
 		msg := fmt.Sprintf("failed to expand path pattern: %s", err.Error())
 		if isTerminalPathPatternError(err) {
