@@ -68,7 +68,7 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		return true, "SourcesChanged"
 	}
 
-	if len(obj.Status.Inventory) != len(obj.Spec.OutputArtifacts) {
+	if len(obj.Status.Inventory) != len(obj.Spec.OutputArtifacts) && obj.Spec.PathPattern == "" {
 		log.Info("Drift detected, number of output artifacts has changed",
 			"old", len(obj.Status.Inventory),
 			"new", len(obj.Spec.OutputArtifacts))
