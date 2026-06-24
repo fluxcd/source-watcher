@@ -35,6 +35,8 @@ type artifactRequest struct {
 	Labels map[string]string
 }
 
+var pathPatternCaptureNameRe = regexp.MustCompile("^[A-Za-z0-9_]+$")
+
 // buildArtifactRequests expands the PathPattern into multiple artifact requests if specified.
 // Otherwise, it returns the OutputArtifacts exactly as defined in the spec.
 func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string]string) ([]artifactRequest, error) {
@@ -66,6 +68,10 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 	// Convert the path pattern (e.g. "apps/{app}/envs/{env}") to a regex
 	// with named capture groups (e.g. "^apps/(?P<app>[^/]+)/envs/(?P<env>[^/]+)$").
 	escaped := regexp.QuoteMeta(patternStr)
+	if err := validatePathPatternCaptures(obj.Spec.PathPattern, patternStr); err != nil {
+		return nil, err
+	}
+
 	captureRe := regexp.MustCompile(`\\\{([a-zA-Z0-9_]+)\\\}`)
 	regexStr := "^" + captureRe.ReplaceAllString(escaped, `(?P<$1>[^/]+)`) + "$"
 	matcher, err := regexp.Compile(regexStr)
@@ -165,6 +171,35 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 	}
 
 	return reqs, nil
+}
+
+func validatePathPatternCaptures(pathPattern, patternStr string) error {
+	seen := make(map[string]struct{})
+	for i := 0; i < len(patternStr); i++ {
+		switch patternStr[i] {
+		case '{':
+			end := strings.IndexByte(patternStr[i+1:], '}')
+			if end < 0 {
+				return fmt.Errorf("pathPattern %q: invalid capture starting at offset %d: missing closing brace", pathPattern, i)
+			}
+
+			name := patternStr[i+1 : i+1+end]
+			if name == "" {
+				return fmt.Errorf("pathPattern %q: empty capture variable", pathPattern)
+			}
+			if !pathPatternCaptureNameRe.MatchString(name) {
+				return fmt.Errorf("pathPattern %q: capture variable %q must match [A-Za-z0-9_]+", pathPattern, name)
+			}
+			if _, ok := seen[name]; ok {
+				return fmt.Errorf("pathPattern %q: duplicate capture variable %q", pathPattern, name)
+			}
+			seen[name] = struct{}{}
+			i += end + 1
+		case '}':
+			return fmt.Errorf("pathPattern %q: invalid capture ending at offset %d: missing opening brace", pathPattern, i)
+		}
+	}
+	return nil
 }
 
 // renderArtifactRequest creates an artifactRequest by evaluating Go template expressions.

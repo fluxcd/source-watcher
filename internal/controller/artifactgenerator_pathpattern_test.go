@@ -111,6 +111,36 @@ func TestBuildArtifactRequests(t *testing.T) {
 		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes label key"))
 	})
 
+	t.Run("invalid capture syntax", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			pattern    string
+			wantErrMsg string
+		}{
+			{name: "empty capture", pattern: "@repo/apps/{}", wantErrMsg: "empty capture variable"},
+			{name: "unsupported capture name", pattern: "@repo/apps/{app-name}", wantErrMsg: "must match [A-Za-z0-9_]+"},
+			{name: "missing closing brace", pattern: "@repo/apps/{app", wantErrMsg: "missing closing brace"},
+			{name: "missing opening brace", pattern: "@repo/apps/app}", wantErrMsg: "missing opening brace"},
+			{name: "duplicate capture", pattern: "@repo/apps/{app}/envs/{app}", wantErrMsg: "duplicate capture variable"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				g := gomega.NewWithT(t)
+				obj := &swapi.ArtifactGenerator{
+					Spec: swapi.ArtifactGeneratorSpec{
+						PathPattern: tc.pattern,
+					},
+				}
+				_, err := buildArtifactRequests(obj, localSources)
+				g.Expect(err).To(gomega.HaveOccurred())
+				g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
+				g.Expect(err.Error()).To(gomega.ContainSubstring(tc.pattern))
+				g.Expect(err.Error()).To(gomega.ContainSubstring(tc.wantErrMsg))
+			})
+		}
+	})
+
 	t.Run("single capture pattern", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 		obj := &swapi.ArtifactGenerator{
