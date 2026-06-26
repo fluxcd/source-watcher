@@ -31,16 +31,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	kuberecorder "k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	eventv1 "github.com/fluxcd/pkg/apis/event/v1beta1"
+	eventv1 "github.com/fluxcd/pkg/apis/event/v1"
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkstroage "github.com/fluxcd/pkg/artifact/storage"
 	gotkfetch "github.com/fluxcd/pkg/http/fetch"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotkevents "github.com/fluxcd/pkg/runtime/events"
 	gotkjitter "github.com/fluxcd/pkg/runtime/jitter"
 	gotkpatch "github.com/fluxcd/pkg/runtime/patch"
 	gotktar "github.com/fluxcd/pkg/tar"
@@ -53,7 +53,7 @@ import (
 // ArtifactGeneratorReconciler reconciles a ArtifactGenerator object.
 type ArtifactGeneratorReconciler struct {
 	client.Client
-	kuberecorder.EventRecorder
+	gotkevents.EventRecorder
 
 	ControllerName            string
 	Scheme                    *runtime.Scheme
@@ -105,7 +105,7 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Pause reconciliation if the object has the reconcile annotation set to 'disabled'.
 	if obj.IsDisabled() {
 		log.Error(errors.New("can't reconcile"), msgReconciliationDisabled)
-		r.Event(obj, eventv1.EventTypeTrace, swapi.ReconciliationDisabledReason, msgReconciliationDisabled)
+		r.Eventf(obj, nil, eventv1.EventTypeTrace, swapi.ReconciliationDisabledReason, eventv1.ActionWaiting, "%s", msgReconciliationDisabled)
 		return ctrl.Result{}, nil
 	}
 
@@ -146,7 +146,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			gotkmeta.ReadyCondition,
 			swapi.SourceFetchFailedReason,
 			"%s", msg)
-		r.Event(obj, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, msg)
+		r.Eventf(obj, nil, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, eventv1.ActionFailed, "%s", msg)
 		log.Error(err, "failed to get sources, retrying")
 		return ctrl.Result{RequeueAfter: r.DependencyRequeueInterval}, nil
 	}
@@ -161,7 +161,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	if !hasDrifted {
 		msg := fmt.Sprintf("No drift detected, %d artifact(s) up to date", len(obj.Status.Inventory))
 		log.Info(msg)
-		r.Event(obj, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, msg)
+		r.Eventf(obj, nil, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, eventv1.ActionReconciled, "%s", msg)
 		return ctrl.Result{RequeueAfter: obj.GetRequeueAfter()}, nil
 	}
 
@@ -188,7 +188,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			gotkmeta.ReadyCondition,
 			swapi.SourceFetchFailedReason,
 			"%s", msg)
-		r.Event(obj, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, msg)
+		r.Eventf(obj, nil, corev1.EventTypeWarning, swapi.SourceFetchFailedReason, eventv1.ActionFailed, "%s", msg)
 		log.Error(err, "failed to fetch sources, retrying")
 		return ctrl.Result{RequeueAfter: r.DependencyRequeueInterval}, nil
 	}
@@ -211,7 +211,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			gotkmeta.ReadyCondition,
 			gotkmeta.BuildFailedReason,
 			"%s", msg)
-		r.Event(obj, corev1.EventTypeWarning, gotkmeta.BuildFailedReason, msg)
+		r.Eventf(obj, nil, corev1.EventTypeWarning, gotkmeta.BuildFailedReason, eventv1.ActionFailed, "%s", msg)
 		return ctrl.Result{}, err
 	}
 
@@ -228,7 +228,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 				gotkmeta.ReadyCondition,
 				gotkmeta.BuildFailedReason,
 				"%s", msg)
-			r.Event(obj, corev1.EventTypeWarning, gotkmeta.BuildFailedReason, msg)
+			r.Eventf(obj, nil, corev1.EventTypeWarning, gotkmeta.BuildFailedReason, eventv1.ActionFailed, "%s", msg)
 			return ctrl.Result{}, err
 		}
 
@@ -245,7 +245,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 				gotkmeta.ReadyCondition,
 				gotkmeta.ReconciliationFailedReason,
 				"%s", msg)
-			r.Event(obj, corev1.EventTypeWarning, gotkmeta.ReconciliationFailedReason, msg)
+			r.Eventf(obj, nil, corev1.EventTypeWarning, gotkmeta.ReconciliationFailedReason, eventv1.ActionFailed, "%s", msg)
 			return ctrl.Result{}, err
 		}
 		eaRefs = append(eaRefs, *eaRef)
@@ -275,7 +275,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		gotkmeta.ReadyCondition,
 		gotkmeta.SucceededReason,
 		"%s", msg)
-	r.Event(obj, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, msg)
+	r.Eventf(obj, nil, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, eventv1.ActionReconciled, "%s", msg)
 
 	r.notify(oldObj, obj, eaRefs)
 
@@ -295,7 +295,7 @@ func (r *ArtifactGeneratorReconciler) notify(oldObj, newObj *swapi.ArtifactGener
 
 	if len(eaChanged) > 0 {
 		msg := fmt.Sprintf("external artifacts reconciled: %s", strings.Join(eaChanged, "\n"))
-		r.Event(newObj, corev1.EventTypeNormal, gotkmeta.ReadyCondition, msg)
+		r.Eventf(newObj, nil, corev1.EventTypeNormal, gotkmeta.ReadyCondition, eventv1.ActionReconciled, "%s", msg)
 	}
 }
 
@@ -526,7 +526,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		msg := fmt.Sprintf("%s/%s/%s reconciled with revision %s",
 			ea.Kind, ea.Namespace, ea.Name, artifact.Revision)
 		log.Info(msg)
-		r.Event(obj, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, msg)
+		r.Eventf(obj, nil, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, eventv1.ActionReconciled, "%s", msg)
 	}
 
 	return &swapi.ExternalArtifactReference{

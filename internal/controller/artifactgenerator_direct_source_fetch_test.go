@@ -53,7 +53,7 @@ func TestArtifactGeneratorReconciler_DirectSourceFetch(t *testing.T) {
 			Client:                    testClient,
 			APIReader:                 testClient,
 			Scheme:                    testEnv.Scheme(),
-			EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
+			EventRecorder:             testEnv.GetEventRecorder(controllerName),
 			Storage:                   testStorage,
 			ArtifactFetchRetries:      1,
 			DependencyRequeueInterval: 5 * time.Second,
