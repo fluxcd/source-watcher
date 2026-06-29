@@ -41,6 +41,7 @@ with advanced source composition and decomposition patterns.
 | `--storage-adv-addr`                  | string        | The advertised address of the static file server.                                                                                                                                        |
 | `--storage-path`                      | string        | The local storage path. (default "/data")                                                                                                                                                |
 | `--watch-all-namespaces`              | boolean       | Watch for resources in all namespaces, if set to false it will only watch the runtime namespace. (default true)                                                                          |
+| `--watch-label-selector`              | string        | Watch for resources with matching labels e.g. 'sharding.fluxcd.io/shard=shard1'.                                                                                                        |
 | `--feature-gates`                     | mapStringBool | A comma separated list of key=value pairs defining the state of experimental features.                                                                                                   |
 
 ### Feature Gates

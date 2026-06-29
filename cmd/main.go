@@ -144,8 +144,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	leaderElectionID := fmt.Sprintf("%s-%s", controllerName, "leader-election")
-
 	// Configure the manager with the GitOps Toolkit runtime options.
 	mgrConfig := ctrlruntime.Options{
 		Scheme: scheme,
@@ -155,7 +153,6 @@ func main() {
 		},
 		HealthProbeBindAddress:        healthAddr,
 		LeaderElection:                leaderElectionOptions.Enable,
-		LeaderElectionID:              leaderElectionID,
 		LeaderElectionReleaseOnCancel: leaderElectionOptions.ReleaseOnCancel,
 		LeaseDuration:                 &leaderElectionOptions.LeaseDuration,
 		RenewDeadline:                 &leaderElectionOptions.RenewDeadline,
@@ -172,6 +169,11 @@ func main() {
 				DisableFor: []ctrlclient.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
 			},
 		},
+	}
+
+	if err := applyWatchOptions(&mgrConfig, controllerName, watchOptions); err != nil {
+		setupLog.Error(err, "unable to configure watch label selector for manager")
+		os.Exit(1)
 	}
 
 	// Limit the watch scope to the runtime namespace if specified.
@@ -244,6 +246,27 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// applyWatchOptions configures the manager cache and leader election for watch selectors.
+func applyWatchOptions(mgrConfig *ctrlruntime.Options, controllerName string, watchOptions gotkctrl.WatchOptions) error {
+	watchSelector, err := gotkctrl.GetWatchSelector(watchOptions)
+	if err != nil {
+		return err
+	}
+
+	leaderElectionID := fmt.Sprintf("%s-%s", controllerName, "leader-election")
+	if watchOptions.LabelSelector != "" {
+		leaderElectionID = gotkelection.GenerateID(leaderElectionID, watchOptions.LabelSelector)
+	}
+	mgrConfig.LeaderElectionID = leaderElectionID
+
+	if mgrConfig.Cache.ByObject == nil {
+		mgrConfig.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
+	}
+	mgrConfig.Cache.ByObject[&swapi.ArtifactGenerator{}] = ctrlcache.ByObject{Label: watchSelector}
+
+	return nil
 }
 
 func mustSetupEventRecorder(mgr ctrlruntime.Manager, eventsAddr, controllerName string) record.EventRecorder {
