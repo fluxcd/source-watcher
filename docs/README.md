@@ -1,11 +1,5 @@
 # Source Watcher
 
-## API Specification
-
-| Kind                                                    | API Version                           |
-|---------------------------------------------------------|---------------------------------------|
-| [ArtifactGenerator](spec/v1beta1/artifactgenerators.md) | `source.extensions.fluxcd.io/v1beta1` |
-
 ## Controller Specification
 
 The source-watcher implements the `source.extensions.fluxcd.io` API that
@@ -46,4 +40,6 @@ with advanced source composition and decomposition patterns.
 
 ### Feature Gates
 
-No feature gates are currently available for this controller.
+| Name                 | Default Value | Description                                                                                                                                                                                                               |
+|----------------------|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `DirectSourceFetch`  | `false`       | Enables fetching source objects (GitRepository, OCIRepository, Bucket, HelmChart, ExternalArtifact) directly from the API server using APIReader, bypassing the controller's cache. This can be useful when immediate consistency is required for source object reads. |
