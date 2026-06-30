@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.2.1
+
+**Release date:** 2026-06-30
+
+This patch release fixes the sharding flags not being honored, so that
+source-watcher correctly restricts reconciliation to the objects matching its
+configured shard. It also updates Kubernetes to 1.36.2 and the fluxcd/pkg
+dependencies, adds kubectl categories to the ArtifactGenerator CRD and documents
+the controller's command-line options.
+
+Fixes:
+- Fix sharding flags not being honored
+  [#353](https://github.com/fluxcd/source-watcher/pull/353)
+
+Improvements:
+- Add categories to the ArtifactGenerator CRD
+  [#352](https://github.com/fluxcd/source-watcher/pull/352)
+- Document controller options
+  [#357](https://github.com/fluxcd/source-watcher/pull/357)
+- Update fluxcd/pkg dependencies
+  [#356](https://github.com/fluxcd/source-watcher/pull/356)
+
 ## 2.2.0
 
 **Release date:** 2026-06-24
