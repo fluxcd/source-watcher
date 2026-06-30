@@ -18,7 +18,7 @@ require (
 	github.com/fluxcd/pkg/tar v1.2.0
 	github.com/fluxcd/pkg/testserver v0.14.0
 	github.com/fluxcd/source-controller/api v1.9.0
-	github.com/fluxcd/source-watcher/api/v2 v2.2.0
+	github.com/fluxcd/source-watcher/api/v2 v2.2.1
 	github.com/onsi/gomega v1.42.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/pflag v1.0.10
