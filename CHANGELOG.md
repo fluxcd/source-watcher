@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.2.2
+
+**Release date:** 2026-07-07
+
+This patch release disables Flux variable substitution on the ArtifactGenerator
+CRD. The CRD is now annotated with
+`kustomize.toolkit.fluxcd.io/substitute: disabled` so that Kustomizations with
+post-build substitution enabled no longer corrupt the CRD schema when it
+contains `${...}` sequences.
+
+Fixes:
+- Disable variable substitution in CRDs
+  [#366](https://github.com/fluxcd/source-watcher/pull/366)
+
 ## 2.2.1
 
 **Release date:** 2026-06-30
