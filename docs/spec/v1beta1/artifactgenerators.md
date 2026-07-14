@@ -322,6 +322,9 @@ Each copy operation specifies how to copy files from sources into the generated 
   file name at any depth.
 - `strategy` (optional): Defines how to handle files during copy operations:
   `Overwrite` (default), `Merge` (for YAML files), or `Extract` (for tarball archives).
+- `optional` (optional): When set to `true`, the copy operation silently
+  skips if the source path or glob pattern matches no files. Defaults to `false`,
+  which causes the reconciliation to fail with an error on missing sources.
 
 Copy operations use `cp`-like semantics:
 

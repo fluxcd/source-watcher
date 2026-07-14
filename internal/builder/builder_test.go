@@ -659,6 +659,94 @@ func TestBuildErrors(t *testing.T) {
 				return spec, sources, workspaceDir
 			},
 		},
+		{
+			name:          "optional skips when source file does not exist",
+			expectedError: "",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				spec := &swapi.OutputArtifact{
+					Name: "optional-source-file",
+					Copy: []swapi.CopyOperation{
+						{
+							From:     "@source/test.yaml",
+							To:       "@artifact/",
+							Optional: true,
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+		},
+		{
+			name:          "optional skips when glob pattern matches no files",
+			expectedError: "",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				spec := &swapi.OutputArtifact{
+					Name: "optional-glob-match",
+					Copy: []swapi.CopyOperation{
+						{
+							From:     "@source/*.yaml",
+							To:       "@artifact/",
+							Optional: true,
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+		},
+		{
+			name:          "optional skips when all files are excluded",
+			expectedError: "",
+			setupFunc: func(t *testing.T) (*swapi.OutputArtifact, map[string]string, string) {
+				tmpDir := t.TempDir()
+				srcDir := filepath.Join(tmpDir, "source")
+				workspaceDir := filepath.Join(tmpDir, "workspace")
+
+				setupDirs(t, srcDir, workspaceDir)
+
+				createFile(t, srcDir, "test.md", "test file")
+				createFile(t, srcDir, "other.md", "other file")
+
+				spec := &swapi.OutputArtifact{
+					Name: "optional-all-excluded",
+					Copy: []swapi.CopyOperation{
+						{
+							From:     "@source/*.md",
+							To:       "@artifact/",
+							Exclude:  []string{"*.md"},
+							Optional: true,
+						},
+					},
+				}
+
+				sources := map[string]string{
+					"source": srcDir,
+				}
+
+				return spec, sources, workspaceDir
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -667,6 +755,10 @@ func TestBuildErrors(t *testing.T) {
 			spec, sources, workspace := tt.setupFunc(t)
 
 			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
+			if tt.expectedError == "" {
+				g.Expect(err).ToNot(HaveOccurred())
+				return
+			}
 			if err == nil {
 				t.Logf("Staging directory contents:")
 				walkErr := filepath.Walk(filepath.Join(workspace, spec.Name), func(path string, info os.FileInfo, err error) error {
