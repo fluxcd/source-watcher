@@ -191,6 +191,13 @@ type CopyOperation struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Overwrite;Merge;Extract
 	Strategy string `json:"strategy,omitempty"`
+
+	// Optional, when set to true, allows the copy operation to silently
+	// skip when the source path or glob pattern matches no files.
+	// When false (default), the reconciliation fails with an error if
+	// no files are matched.
+	// +optional
+	Optional bool `json:"optional,omitempty"`
 }
 
 // ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.

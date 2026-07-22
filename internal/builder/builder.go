@@ -197,6 +197,9 @@ func applyCopyOperation(ctx context.Context,
 	}
 
 	if len(matches) == 0 {
+		if op.Optional {
+			return nil
+		}
 		return fmt.Errorf("no files match pattern '%s' in source '%s'", srcPattern, srcAlias)
 	}
 
@@ -218,6 +221,9 @@ func applyCopyOperation(ctx context.Context,
 	}
 
 	if len(filteredMatches) == 0 {
+		if op.Optional {
+			return nil
+		}
 		return fmt.Errorf("all files matching pattern '%s' in source '%s' were excluded", srcPattern, srcAlias)
 	}
 
@@ -266,6 +272,9 @@ func applySingleSourceCopy(ctx context.Context,
 	srcInfo, err := srcRoot.Stat(srcPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if op.Optional {
+				return nil
+			}
 			return fmt.Errorf("source '%s' does not exist", srcPath)
 		}
 		return fmt.Errorf("failed to stat source '%s': %w", srcPath, err)
