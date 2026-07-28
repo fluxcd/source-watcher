@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -152,6 +153,10 @@ func applyCopyOperation(ctx context.Context,
 		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
 	}
 
+	if err := validateGlobPattern(srcPattern); err != nil {
+		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
+	}
+
 	destRelPath, err := parseCopyDestinationRelative(op.To)
 	if err != nil {
 		return fmt.Errorf("invalid copy destination '%s': %w", op.To, err)
@@ -163,6 +168,9 @@ func applyCopyOperation(ctx context.Context,
 	}
 
 	for _, pattern := range op.Exclude {
+		if err := validateGlobPattern(pattern); err != nil {
+			return fmt.Errorf("invalid exclude pattern '%s': %w", pattern, err)
+		}
 		if _, err := doublestar.Match(pattern, "."); err != nil {
 			return fmt.Errorf("invalid exclude pattern '%s'", pattern)
 		}
@@ -353,6 +361,41 @@ func containsGlobChars(path string) bool {
 	return strings.ContainsAny(path, "*?[]")
 }
 
+// maxGlobAlternationCommas bounds glob alternation expansion. doublestar
+// re-matches the whole pattern once per alternative and cannot be interrupted,
+// so cost is the product of the group widths; commas bound that product at 2^n.
+// 20 is ~780ms worst case, 22 is ~3s.
+const maxGlobAlternationCommas = 20
+
+// validateGlobPattern bounds a pattern's alternation expansion. Only commas
+// inside a '{}' group count; a backslash escapes the next byte. Must run before
+// any matcher, including doublestar.Match.
+func validateGlobPattern(pattern string) error {
+	var commas, depth int
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			i++ // escaped byte is a literal
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth > 0 {
+				commas++
+			}
+		}
+	}
+
+	if commas > maxGlobAlternationCommas {
+		return fmt.Errorf("pattern has %d alternatives in '{}' groups, at most %d are allowed",
+			commas, maxGlobAlternationCommas)
+	}
+	return nil
+}
+
 // calculateGlobDestination determines the correct destination path for a glob match
 // to match cp-like behavior for different glob patterns:
 // - dir/** patterns strip the directory prefix (like cp -r dir/** dest/)
@@ -421,10 +464,8 @@ func parseCopyDestinationRelative(to string) (string, error) {
 	if !filepath.IsLocal(destPath) {
 		return "", fmt.Errorf("destination path must stay within the artifact root")
 	}
-	for _, part := range strings.Split(filepath.ToSlash(destPath), "/") {
-		if part == ".." {
-			return "", fmt.Errorf("destination path must not contain '..'")
-		}
+	if slices.Contains(strings.Split(filepath.ToSlash(destPath), "/"), "..") {
+		return "", fmt.Errorf("destination path must not contain '..'")
 	}
 
 	return destPath, nil
