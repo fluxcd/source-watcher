@@ -119,7 +119,7 @@ spec:
                               is set, the path may use capture placeholders such as "{app}".
                             maxLength: 1024
                             minLength: 1
-                            pattern: ^@(artifact)/(.*)$
+                            pattern: ^@artifact/([^/]{0,1}|[^./][^/]|[.][^./]|[^/]{3,})(/([^/]{0,1}|[^./][^/]|[.][^./]|[^/]{3,}))*$
                             type: string
                         required:
                         - from
