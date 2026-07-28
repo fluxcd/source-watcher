@@ -187,7 +187,7 @@ func applyCopyOperation(ctx context.Context,
 
 	if !isGlobPattern {
 		// Direct path reference - check what it actually is first (cp-like behavior)
-		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, stagingDir, destRelPath, destEndsWithSlash)
+		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash)
 	}
 
 	matches, err := getGlobMatchingEntries(op, srcRoot, srcPattern)
@@ -233,7 +233,7 @@ func applyCopyOperation(ctx context.Context,
 				// Ignore files that are not tarball archives and directories
 				continue
 			}
-			if err := extractTarball(ctx, srcRoot, match, stagingDir, destRelPath); err != nil {
+			if err := extractTarball(ctx, srcRoot, match, stagingRoot, destRelPath); err != nil {
 				return fmt.Errorf("failed to extract tarball '%s' to '%s': %w", match, destRelPath, err)
 			}
 		} else {
@@ -256,7 +256,6 @@ func applySingleSourceCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	stagingDir string,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Clean the source path to handle trailing slashes
@@ -279,7 +278,7 @@ func applySingleSourceCopy(ctx context.Context,
 		return applySingleDirectoryCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath)
 	}
 
-	return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, stagingDir, destPath, destEndsWithSlash)
+	return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash)
 }
 
 // applySingleFileCopy handles copying a single file using cp-like semantics:
@@ -290,7 +289,6 @@ func applySingleFileCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	stagingDir string,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Check if the file should be excluded
@@ -303,7 +301,7 @@ func applySingleFileCopy(ctx context.Context,
 		if !isTarball(srcPath) {
 			return fmt.Errorf("extract strategy requires tarball file (.tar.gz or .tgz), got '%s'", srcPath)
 		}
-		return extractTarball(ctx, srcRoot, srcPath, stagingDir, destPath)
+		return extractTarball(ctx, srcRoot, srcPath, stagingRoot, destPath)
 	}
 
 	var finalDestPath string
@@ -407,7 +405,20 @@ func parseCopyDestinationRelative(to string) (string, error) {
 		return "", fmt.Errorf("destination must start with '@artifact/'")
 	}
 
-	return strings.TrimPrefix(to, "@artifact/"), nil
+	destPath := strings.TrimPrefix(to, "@artifact/")
+	if destPath == "" {
+		return ".", nil
+	}
+	if !filepath.IsLocal(destPath) {
+		return "", fmt.Errorf("destination path must stay within the artifact root")
+	}
+	for _, part := range strings.Split(filepath.ToSlash(destPath), "/") {
+		if part == ".." {
+			return "", fmt.Errorf("destination path must not contain '..'")
+		}
+	}
+
+	return destPath, nil
 }
 
 // copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root,

@@ -28,6 +28,7 @@ import (
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
+	"github.com/fluxcd/source-watcher/v2/internal/builder"
 )
 
 func TestBuild(t *testing.T) {
@@ -686,6 +687,183 @@ func TestBuildErrors(t *testing.T) {
 			}
 
 			g.Expect(err.Error()).To(ContainSubstring(tt.expectedError))
+		})
+	}
+}
+
+func TestBuildCopySources(t *testing.T) {
+	tests := []struct {
+		name          string
+		from          string
+		expectedError string
+	}{
+		{
+			name:          "missing alias prefix",
+			from:          "source/config.yaml",
+			expectedError: "source must start with '@'",
+		},
+		{
+			name:          "alias without a pattern",
+			from:          "@source",
+			expectedError: "source format must be '@alias/pattern'",
+		},
+		{
+			name:          "unknown alias",
+			from:          "@missing/config.yaml",
+			expectedError: "source alias 'missing' not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			tmpDir := t.TempDir()
+			srcDir := filepath.Join(tmpDir, "source")
+			workspaceDir := filepath.Join(tmpDir, "workspace")
+
+			setupDirs(t, srcDir, workspaceDir)
+			createFile(t, srcDir, "config.yaml", "apiVersion: v1")
+
+			spec := &swapi.OutputArtifact{
+				Name: "cp-source",
+				Copy: []swapi.CopyOperation{
+					{
+						From: tt.from,
+						To:   "@artifact/",
+					},
+				},
+			}
+			sources := map[string]string{"source": srcDir}
+
+			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspaceDir)
+			g.Expect(err).To(MatchError(ContainSubstring(tt.expectedError)))
+		})
+	}
+}
+
+func TestMkdirTempAbs(t *testing.T) {
+	t.Run("returns a fully resolved absolute path", func(t *testing.T) {
+		g := NewWithT(t)
+
+		tmpDir, err := builder.MkdirTempAbs("", "ag-")
+		g.Expect(err).ToNot(HaveOccurred())
+		defer os.RemoveAll(tmpDir)
+
+		g.Expect(tmpDir).To(BeADirectory())
+		g.Expect(filepath.IsAbs(tmpDir)).To(BeTrue())
+
+		// The returned path must contain no symlink components, otherwise
+		// paths derived from it would not compare equal to their resolved
+		// form. On macOS os.MkdirTemp returns /var/..., a symlink to
+		// /private/var.
+		resolved, err := filepath.EvalSymlinks(tmpDir)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(tmpDir).To(Equal(resolved))
+	})
+
+	t.Run("error when the parent directory does not exist", func(t *testing.T) {
+		g := NewWithT(t)
+
+		_, err := builder.MkdirTempAbs(filepath.Join(t.TempDir(), "nonexistent"), "ag-")
+		g.Expect(err).To(HaveOccurred())
+	})
+}
+
+func TestBuildCopyDestinations(t *testing.T) {
+	tests := []struct {
+		name          string
+		to            string
+		expectedFile  string
+		expectedError string
+	}{
+		{
+			name:         "artifact root",
+			to:           "@artifact/",
+			expectedFile: "config.yaml",
+		},
+		{
+			name:         "subdirectory with trailing slash",
+			to:           "@artifact/sub/dir/",
+			expectedFile: filepath.Join("sub", "dir", "config.yaml"),
+		},
+		{
+			name:         "subdirectory without trailing slash renames the file",
+			to:           "@artifact/sub/dir",
+			expectedFile: filepath.Join("sub", "dir"),
+		},
+		{
+			name:         "current directory component",
+			to:           "@artifact/./sub/",
+			expectedFile: filepath.Join("sub", "config.yaml"),
+		},
+		{
+			name:         "dots within a directory name",
+			to:           "@artifact/sub..dir/",
+			expectedFile: filepath.Join("sub..dir", "config.yaml"),
+		},
+		{
+			name:          "parent directory",
+			to:            "@artifact/..",
+			expectedError: "destination path must stay within the artifact root",
+		},
+		{
+			name:          "parent traversal",
+			to:            "@artifact/../../escape",
+			expectedError: "destination path must stay within the artifact root",
+		},
+		{
+			name:          "nested parent component",
+			to:            "@artifact/sub/../escape",
+			expectedError: "destination path must not contain '..'",
+		},
+		{
+			name:          "absolute path",
+			to:            "@artifact//tmp/escape",
+			expectedError: "destination path must stay within the artifact root",
+		},
+		{
+			name:          "unknown destination alias",
+			to:            "@source/sub",
+			expectedError: "destination must start with '@artifact/'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			tmpDir := t.TempDir()
+			srcDir := filepath.Join(tmpDir, "source")
+			workspaceDir := filepath.Join(tmpDir, "workspace")
+
+			setupDirs(t, srcDir, workspaceDir)
+			createFile(t, srcDir, "config.yaml", "apiVersion: v1")
+
+			spec := &swapi.OutputArtifact{
+				Name: "cp-destination",
+				Copy: []swapi.CopyOperation{
+					{
+						From: "@source/config.yaml",
+						To:   tt.to,
+					},
+				},
+			}
+			sources := map[string]string{"source": srcDir}
+
+			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspaceDir)
+			stagingDir := filepath.Join(workspaceDir, spec.Name)
+
+			if tt.expectedError != "" {
+				g.Expect(err).To(MatchError(ContainSubstring(tt.expectedError)))
+				// Nothing must be written outside the staging directory.
+				g.Expect(filepath.Join(tmpDir, "escape")).ToNot(BeAnExistingFile())
+				g.Expect(filepath.Join(workspaceDir, "escape")).ToNot(BeAnExistingFile())
+				return
+			}
+
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(filepath.Join(stagingDir, tt.expectedFile)).To(BeAnExistingFile())
 		})
 	}
 }

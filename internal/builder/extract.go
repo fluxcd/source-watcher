@@ -58,7 +58,7 @@ func isTarball(path string) bool {
 func extractTarball(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
-	stagingDir string,
+	stagingRoot *os.Root,
 	destPath string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -71,15 +71,19 @@ func extractTarball(ctx context.Context,
 	}
 	defer srcFile.Close()
 
-	// Create the full destination path
-	fullDestPath := filepath.Join(stagingDir, destPath)
-	if err := os.MkdirAll(fullDestPath, 0o755); err != nil {
-		return fmt.Errorf("failed to create destination directory %q: %w", fullDestPath, err)
+	cleanDestPath := filepath.Clean(destPath)
+	if err := stagingRoot.MkdirAll(cleanDestPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create destination directory %q: %w", destPath, err)
 	}
 
-	// Use fluxcd/pkg/tar.Untar for secure extraction
-	if err := tar.Untar(srcFile, fullDestPath); err != nil {
-		return fmt.Errorf("failed to extract tarball %q to %q: %w", srcPath, fullDestPath, err)
+	destRoot, err := stagingRoot.OpenRoot(cleanDestPath)
+	if err != nil {
+		return fmt.Errorf("failed to open destination directory %q: %w", destPath, err)
+	}
+	defer destRoot.Close()
+
+	if err := tar.Untar(srcFile, destRoot.Name()); err != nil {
+		return fmt.Errorf("failed to extract tarball %q to %q: %w", srcPath, destPath, err)
 	}
 
 	return nil

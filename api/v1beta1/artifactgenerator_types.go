@@ -166,7 +166,7 @@ type CopyOperation struct {
 	// The format is "@artifact/path", the alias "artifact"
 	// refers to the root path of the generated artifact. When pathPattern
 	// is set, the path may use capture placeholders such as "{app}".
-	// +kubebuilder:validation:Pattern="^@(artifact)/(.*)$"
+	// +kubebuilder:validation:Pattern="^@artifact/([^/]{0,1}|[^./][^/]|[.][^./]|[^/]{3,})(/([^/]{0,1}|[^./][^/]|[.][^./]|[^/]{3,}))*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
 	// +required
