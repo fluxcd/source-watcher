@@ -78,6 +78,7 @@ spec:
                               prefix of 'From'. Patterns without a separator (e.g. "*.md") match
                               the file name at any depth.
                             items:
+                              maxLength: 1024
                               type: string
                             maxItems: 100
                             type: array

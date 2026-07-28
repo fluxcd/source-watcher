@@ -178,6 +178,7 @@ type CopyOperation struct {
 	// prefix of 'From'. Patterns without a separator (e.g. "*.md") match
 	// the file name at any depth.
 	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=1024
 	// +optional
 	Exclude []string `json:"exclude,omitempty"`
 

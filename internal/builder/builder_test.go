@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 
@@ -738,6 +740,120 @@ func TestBuildCopySources(t *testing.T) {
 
 			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspaceDir)
 			g.Expect(err).To(MatchError(ContainSubstring(tt.expectedError)))
+		})
+	}
+}
+
+// TestBuildGlobAlternationLimit checks that patterns too expensive to match are
+// rejected before reaching a matcher. Every rejected pattern below takes seconds
+// or more to match, so the elapsed assertion catches validation running late.
+func TestBuildGlobAlternationLimit(t *testing.T) {
+	manyGroups := strings.Repeat("{a,a}", 30) + "z"                  // ~50s
+	wideGroups := strings.Repeat("{a,a,a,a,a,a,a,a}", 10) + "z"      // ~30s; passes a group-count bound
+	stallsPreValidation := "{.,.}" + strings.Repeat("{,}", 29) + "z" // stalls doublestar.Match(p, ".")
+	atLimit := strings.Repeat("{a,a}", 20) + "zzz*"                  // accepted, matches nothing
+
+	tests := []struct {
+		name          string
+		from          string
+		strategy      string
+		exclude       []string
+		expectedError string
+	}{
+		{
+			name:          "many narrow groups in from",
+			from:          "@source/" + manyGroups + "*",
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			name:          "many narrow groups in exclude",
+			from:          "@source/**",
+			exclude:       []string{manyGroups},
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			name:          "many narrow groups in a later exclude entry",
+			from:          "@source/**",
+			exclude:       []string{"*.md", manyGroups},
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			name:          "few wide groups in exclude",
+			from:          "@source/**",
+			exclude:       []string{wideGroups},
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			name:          "few wide groups in from",
+			from:          "@source/" + wideGroups + "*",
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			name:          "pattern that stalls the exclude syntax check",
+			from:          "@source/**",
+			exclude:       []string{stallsPreValidation},
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			// Extract takes the doublestar.Glob branch, not fs.Glob.
+			name:          "many narrow groups in from with Extract strategy",
+			from:          "@source/" + manyGroups + "*.tgz",
+			strategy:      swapi.ExtractStrategy,
+			expectedError: "at most 20 are allowed",
+		},
+		{
+			name:    "at the limit is accepted",
+			from:    "@source/**",
+			exclude: []string{atLimit},
+		},
+		{
+			name:    "escaped braces are literals and do not count",
+			from:    "@source/**",
+			exclude: []string{strings.Repeat(`\{a\}`, 12) + "/**"},
+		},
+		{
+			name:    "realistic extension alternation is accepted",
+			from:    "@source/**",
+			exclude: []string{"**/*.{yaml,yml,json,toml}"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			tmpDir := t.TempDir()
+			srcDir := filepath.Join(tmpDir, "source")
+			workspaceDir := filepath.Join(tmpDir, "workspace")
+
+			setupDirs(t, srcDir, workspaceDir)
+			// Long enough for the alternation recursion to bite.
+			createFile(t, srcDir, strings.Repeat("a", 40), "content")
+
+			spec := &swapi.OutputArtifact{
+				Name: "glob-alternations",
+				Copy: []swapi.CopyOperation{
+					{
+						From:     tt.from,
+						To:       "@artifact/",
+						Exclude:  tt.exclude,
+						Strategy: tt.strategy,
+					},
+				},
+			}
+			sources := map[string]string{"source": srcDir}
+
+			start := time.Now()
+			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspaceDir)
+			elapsed := time.Since(start)
+
+			if tt.expectedError != "" {
+				g.Expect(err).To(MatchError(ContainSubstring(tt.expectedError)))
+				// Rejected before matching, not after.
+				g.Expect(elapsed).To(BeNumerically("<", 2*time.Second))
+				return
+			}
+			g.Expect(err).ToNot(HaveOccurred())
 		})
 	}
 }
