@@ -301,7 +301,3 @@ type ArtifactGeneratorList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ArtifactGenerator `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ArtifactGenerator{}, &ArtifactGeneratorList{})
-}
