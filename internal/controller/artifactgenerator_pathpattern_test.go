@@ -419,26 +419,24 @@ func TestBuildArtifactRequests(t *testing.T) {
 	t.Run("duplicate names after lowercasing", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 
-		dupDir, err := os.MkdirTemp("", "dup-test")
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		defer os.RemoveAll(dupDir)
-
-		dupAliasDir := filepath.Join(dupDir, "repo")
-		// Both will lowercase to "auth"
-		os.MkdirAll(filepath.Join(dupAliasDir, "apps", "Auth"), 0o755)
-		os.MkdirAll(filepath.Join(dupAliasDir, "apps", "auth"), 0o755)
+		dupAliasDir := filepath.Join(t.TempDir(), "repo")
+		// "Auth" and "auth" both lowercase to "auth", so the rendered names
+		// collide. They are kept under different parents so the two paths stay
+		// distinct on case-insensitive filesystems such as macOS APFS.
+		g.Expect(os.MkdirAll(filepath.Join(dupAliasDir, "apps", "dev", "Auth"), 0o755)).To(gomega.Succeed())
+		g.Expect(os.MkdirAll(filepath.Join(dupAliasDir, "apps", "prod", "auth"), 0o755)).To(gomega.Succeed())
 
 		dupSources := map[string]string{"repo": dupAliasDir}
 
 		obj := &swapi.ArtifactGenerator{
 			Spec: swapi.ArtifactGeneratorSpec{
-				PathPattern: "@repo/apps/{app}",
+				PathPattern: "@repo/apps/{env}/{app}",
 				OutputArtifacts: []swapi.OutputArtifact{
 					{Name: "app-{app}"},
 				},
 			},
 		}
-		_, err = buildArtifactRequests(obj, dupSources)
+		_, err := buildArtifactRequests(obj, dupSources)
 		g.Expect(err).To(gomega.HaveOccurred())
 		g.Expect(err.Error()).To(gomega.ContainSubstring("pathPattern"))
 		g.Expect(err.Error()).To(gomega.ContainSubstring("both resolve to artifact name"))

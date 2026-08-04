@@ -319,9 +319,12 @@ Each copy operation specifies how to copy files from sources into the generated 
   Any file matched by `from` that also matches an exclude pattern will be ignored.
   Patterns are matched against paths relative to the source alias root or to the
   non-glob prefix of `from`. Patterns without a separator (e.g. `*.md`) match the
-  file name at any depth.
+  file name at any depth. Each pattern is limited to 1024 characters.
 - `strategy` (optional): Defines how to handle files during copy operations:
   `Overwrite` (default), `Merge` (for YAML files), or `Extract` (for tarball archives).
+
+The `from` and `exclude` glob patterns may each contain at most 20 commas
+inside `{}` alternation groups; patterns over the limit are rejected.
 
 Copy operations use `cp`-like semantics:
 
