@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -152,6 +153,10 @@ func applyCopyOperation(ctx context.Context,
 		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
 	}
 
+	if err := validateGlobPattern(srcPattern); err != nil {
+		return fmt.Errorf("invalid copy source '%s': %w", op.From, err)
+	}
+
 	destRelPath, err := parseCopyDestinationRelative(op.To)
 	if err != nil {
 		return fmt.Errorf("invalid copy destination '%s': %w", op.To, err)
@@ -163,6 +168,9 @@ func applyCopyOperation(ctx context.Context,
 	}
 
 	for _, pattern := range op.Exclude {
+		if err := validateGlobPattern(pattern); err != nil {
+			return fmt.Errorf("invalid exclude pattern '%s': %w", pattern, err)
+		}
 		if _, err := doublestar.Match(pattern, "."); err != nil {
 			return fmt.Errorf("invalid exclude pattern '%s'", pattern)
 		}
@@ -187,7 +195,7 @@ func applyCopyOperation(ctx context.Context,
 
 	if !isGlobPattern {
 		// Direct path reference - check what it actually is first (cp-like behavior)
-		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, stagingDir, destRelPath, destEndsWithSlash)
+		return applySingleSourceCopy(ctx, op, srcRoot, srcPattern, stagingRoot, destRelPath, destEndsWithSlash)
 	}
 
 	matches, err := getGlobMatchingEntries(op, srcRoot, srcPattern)
@@ -239,7 +247,7 @@ func applyCopyOperation(ctx context.Context,
 				// Ignore files that are not tarball archives and directories
 				continue
 			}
-			if err := extractTarball(ctx, srcRoot, match, stagingDir, destRelPath); err != nil {
+			if err := extractTarball(ctx, srcRoot, match, stagingRoot, destRelPath); err != nil {
 				return fmt.Errorf("failed to extract tarball '%s' to '%s': %w", match, destRelPath, err)
 			}
 		} else {
@@ -262,7 +270,6 @@ func applySingleSourceCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	stagingDir string,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Clean the source path to handle trailing slashes
@@ -288,7 +295,7 @@ func applySingleSourceCopy(ctx context.Context,
 		return applySingleDirectoryCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath)
 	}
 
-	return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, stagingDir, destPath, destEndsWithSlash)
+	return applySingleFileCopy(ctx, op, srcRoot, srcPath, stagingRoot, destPath, destEndsWithSlash)
 }
 
 // applySingleFileCopy handles copying a single file using cp-like semantics:
@@ -299,7 +306,6 @@ func applySingleFileCopy(ctx context.Context,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
-	stagingDir string,
 	destPath string,
 	destEndsWithSlash bool) error {
 	// Check if the file should be excluded
@@ -312,7 +318,7 @@ func applySingleFileCopy(ctx context.Context,
 		if !isTarball(srcPath) {
 			return fmt.Errorf("extract strategy requires tarball file (.tar.gz or .tgz), got '%s'", srcPath)
 		}
-		return extractTarball(ctx, srcRoot, srcPath, stagingDir, destPath)
+		return extractTarball(ctx, srcRoot, srcPath, stagingRoot, destPath)
 	}
 
 	var finalDestPath string
@@ -353,6 +359,41 @@ func applySingleDirectoryCopy(ctx context.Context,
 // containsGlobChars returns true if the path contains glob metacharacters
 func containsGlobChars(path string) bool {
 	return strings.ContainsAny(path, "*?[]")
+}
+
+// maxGlobAlternationCommas bounds glob alternation expansion. doublestar
+// re-matches the whole pattern once per alternative and cannot be interrupted,
+// so cost is the product of the group widths; commas bound that product at 2^n.
+// 20 is ~780ms worst case, 22 is ~3s.
+const maxGlobAlternationCommas = 20
+
+// validateGlobPattern bounds a pattern's alternation expansion. Only commas
+// inside a '{}' group count; a backslash escapes the next byte. Must run before
+// any matcher, including doublestar.Match.
+func validateGlobPattern(pattern string) error {
+	var commas, depth int
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			i++ // escaped byte is a literal
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth > 0 {
+				commas++
+			}
+		}
+	}
+
+	if commas > maxGlobAlternationCommas {
+		return fmt.Errorf("pattern has %d alternatives in '{}' groups, at most %d are allowed",
+			commas, maxGlobAlternationCommas)
+	}
+	return nil
 }
 
 // calculateGlobDestination determines the correct destination path for a glob match
@@ -416,7 +457,18 @@ func parseCopyDestinationRelative(to string) (string, error) {
 		return "", fmt.Errorf("destination must start with '@artifact/'")
 	}
 
-	return strings.TrimPrefix(to, "@artifact/"), nil
+	destPath := strings.TrimPrefix(to, "@artifact/")
+	if destPath == "" {
+		return ".", nil
+	}
+	if !filepath.IsLocal(destPath) {
+		return "", fmt.Errorf("destination path must stay within the artifact root")
+	}
+	if slices.Contains(strings.Split(filepath.ToSlash(destPath), "/"), "..") {
+		return "", fmt.Errorf("destination path must not contain '..'")
+	}
+
+	return destPath, nil
 }
 
 // copyFileWithRoots copies a file from srcRoot to stagingRoot os.Root,

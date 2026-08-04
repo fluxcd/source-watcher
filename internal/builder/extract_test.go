@@ -616,6 +616,32 @@ env: second
 
 }
 
+func TestBuild_ExtractStrategyRejectsDestinationTraversal(t *testing.T) {
+	g := NewWithT(t)
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+	workspaceDir := filepath.Join(tmpDir, "workspace")
+	setupDirs(t, sourceDir, workspaceDir)
+	g.Expect(createTestTarball(filepath.Join(sourceDir, "manifests.tgz"))).To(Succeed())
+
+	spec := &swapi.OutputArtifact{
+		Name: "extract-traversal",
+		Copy: []swapi.CopyOperation{
+			{
+				From:     "@source/manifests.tgz",
+				To:       "@artifact/../../escape",
+				Strategy: swapi.ExtractStrategy,
+			},
+		},
+	}
+
+	artifact, err := testBuilder.Build(context.Background(), spec,
+		map[string]string{"source": sourceDir}, "test-extract", workspaceDir)
+	g.Expect(err).To(MatchError(ContainSubstring("destination path must stay within the artifact root")))
+	g.Expect(artifact).To(BeNil())
+	g.Expect(filepath.Join(tmpDir, "escape", "config.yaml")).ToNot(BeAnExistingFile())
+}
+
 // createTestTarball creates a test tarball with sample files
 func createTestTarball(path string) error {
 	file, err := os.Create(path)
