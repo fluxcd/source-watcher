@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.2.3
+
+**Release date:** 2026-08-07
+
+This patch release aligns the tarball extraction performed by `Extract` copy
+operations with the other copy operations, so that it writes through `os.Root`
+and stays confined to the artifact root. It also bounds the expansion of the
+`from` and `exclude` glob patterns, which may now contain at most 20 commas
+inside `{}` alternation groups. On the `ArtifactGenerator` API, the `to` field
+validation pattern no longer accepts `.` and `..` path segments, and each
+`exclude` pattern is limited to 1024 characters.
+
+Note that this release contains a CRD schema change, the `ArtifactGenerator`
+CRD must be updated along with the controller.
+
+Fixes:
+- Confine tarball extraction and bound glob expansion
+  [#374](https://github.com/fluxcd/source-watcher/pull/374)
+
 ## 2.2.2
 
 **Release date:** 2026-07-07
