@@ -14,7 +14,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.30.2
 	github.com/fluxcd/pkg/artifact v0.18.3
 	github.com/fluxcd/pkg/http/fetch v0.25.0
-	github.com/fluxcd/pkg/runtime v0.110.2
+	github.com/fluxcd/pkg/runtime v0.110.3
 	github.com/fluxcd/pkg/tar v1.2.0
 	github.com/fluxcd/pkg/testserver v0.14.0
 	github.com/fluxcd/source-controller/api v1.9.0
