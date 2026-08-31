@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.2.4
+
+**Release date:** 2026-08-31
+
+This patch release updates the fluxcd/pkg dependencies, which bring Kubernetes
+to 1.36.4.
+
+Improvements:
+- Update fluxcd/pkg dependencies
+  [#377](https://github.com/fluxcd/source-watcher/pull/377)
+  [#378](https://github.com/fluxcd/source-watcher/pull/378)
+
 ## 2.2.3
 
 **Release date:** 2026-08-07
