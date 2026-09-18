@@ -176,7 +176,7 @@ c:
 				source2Dir := filepath.Join(tmpDir, "source2")
 				workspaceDir := filepath.Join(tmpDir, "workspace")
 
-				setupDirs(t, source1Dir, source2Dir, workspaceDir)
+				setupDirs(t, filepath.Join(source1Dir, "config"), filepath.Join(source2Dir, "config"), workspaceDir)
 
 				// Create first source with base config
 				createFile(t, source1Dir, "config1.yaml", `
@@ -187,10 +187,16 @@ region: us-west-1
 version: 1.0.0
 image: my-app:latest
 `)
+				createFile(t, filepath.Join(source1Dir, "config"), "config3.yaml", `
+version: 1.0.0
+image: my-app:latest
+`)
 
 				// Create second source with overlay config
-				createFile(t, source2Dir, "config1.yaml", "env: prod")   // This should overwrite the env
-				createFile(t, source2Dir, "config2.yaml", "replicas: 5") // This should add a new field
+				createFile(t, source2Dir, "config1.yaml", "env: prod")                                     // This should overwrite the env
+				createFile(t, source2Dir, "config2.yaml", "replicas: 5")                                   // This should add a new field in the root directory of the glob pattern
+				createFile(t, filepath.Join(source2Dir, "config"), "config3.yaml", "replicas: 10")         // This should add a new field in a subdirectory matched by the glob pattern
+				createFile(t, filepath.Join(source2Dir, "config"), "config4.yaml", "content: hello-world") // This should add a new file
 
 				spec := &swapi.OutputArtifact{
 					Name: "yaml-to-yaml-dir-merge",
@@ -222,6 +228,8 @@ image: my-app:latest
 				stagingDir := filepath.Join(workspaceDir, "yaml-to-yaml-dir-merge")
 				config1Path := filepath.Join(stagingDir, "config1.yaml")
 				config2Path := filepath.Join(stagingDir, "config2.yaml")
+				config3Path := filepath.Join(stagingDir, "config", "config3.yaml")
+				config4Path := filepath.Join(stagingDir, "config", "config4.yaml")
 
 				config1Content, err := os.ReadFile(config1Path)
 				g.Expect(err).ToNot(HaveOccurred())
@@ -230,6 +238,14 @@ image: my-app:latest
 				config2Content, err := os.ReadFile(config2Path)
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(config2Content).ToNot(BeEmpty())
+
+				config3Content, err := os.ReadFile(config3Path)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(config3Content).ToNot(BeEmpty())
+
+				config4Content, err := os.ReadFile(config4Path)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(config4Content).ToNot(BeEmpty())
 
 				// Verify the merged YAML contains expected content
 				g.Expect(config1Content).To(MatchYAML(`
@@ -240,6 +256,14 @@ region: us-west-1
 image: my-app:latest
 replicas: 5
 version: 1.0.0
+`))
+				g.Expect(config3Content).To(MatchYAML(`
+image: my-app:latest
+replicas: 10
+version: 1.0.0
+`))
+				g.Expect(config4Content).To(MatchYAML(`
+content: hello-world
 `))
 			},
 		},
