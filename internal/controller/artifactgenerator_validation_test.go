@@ -290,6 +290,58 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "valid artifact namespace",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-valid-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = "another-namespace"
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid artifact namespace",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-invalid-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = "Invalid-Namespace"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "valid service account name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-valid-service-account",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ServiceAccountName = "artifact-generator"
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid service account name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-invalid-service-account",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ServiceAccountName = "Invalid ServiceAccount"
+				return obj
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {

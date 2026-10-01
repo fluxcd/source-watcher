@@ -74,11 +74,11 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 	g.Expect(artifact).ToNot(BeNil())
 
 	// Generate the ExternalArtifact in cluster
-	_, err = reconciler.reconcileExternalArtifact(ctx, &swapi.ArtifactGenerator{
+	_, _, err = reconciler.reconcileExternalArtifact(ctx, &swapi.ArtifactGenerator{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-generator",
 			Namespace: ns.Name,
-		}}, outputArtifact, artifact, nil)
+		}}, outputArtifact, artifact, nil, nil)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	tests := []struct {
@@ -367,7 +367,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 				tt.setupFunc()
 			}
 
-			hasDrift, reason := reconciler.detectDrift(ctx, tt.obj, tt.currentDigest)
+			hasDrift, reason := reconciler.detectDrift(ctx, tt.obj, tt.currentDigest, nil)
 			gt.Expect(hasDrift).To(Equal(tt.expectedDrift))
 			gt.Expect(reason).To(Equal(tt.expectedReason))
 		})

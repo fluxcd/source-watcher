@@ -45,7 +45,8 @@ import (
 //   - "NoDriftDetected" - no drift detected and the storage is up to date
 func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	currentSourcesDigest string) (bool, string) {
+	currentSourcesDigest string,
+	impersonated client.Client) (bool, string) {
 	// Setup logger on debug level.
 	log := ctrl.LoggerFrom(ctx).V(1)
 
@@ -98,7 +99,7 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		}
 	}
 
-	eaDrift, err := r.detectExternalArtifactsDrift(ctx, obj)
+	eaDrift, err := r.detectExternalArtifactsDrift(ctx, obj, impersonated)
 	if err != nil {
 		log.Error(err, "Failed to verify in-cluster external artifacts for drift")
 		return true, "ExternalArtifactsNotFound"
@@ -114,26 +115,43 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 // detectExternalArtifactsDrift checks if any ExternalArtifact objects
 // managed by the ArtifactGenerator have been modified or deleted.
 func (r *ArtifactGeneratorReconciler) detectExternalArtifactsDrift(ctx context.Context,
-	obj *swapi.ArtifactGenerator) (bool, error) {
+	obj *swapi.ArtifactGenerator,
+	impersonated client.Client) (bool, error) {
 
-	eaList := &sourcev1.ExternalArtifactList{}
-	if err := r.List(ctx, eaList, client.InNamespace(obj.Namespace),
-		client.MatchingLabels{
-			swapi.ArtifactGeneratorLabel: string(obj.GetUID()),
-		}); err != nil {
-		return true, fmt.Errorf("error listing external artifacts: %w", err)
+	// Group the inventory references by namespace, as the generated
+	// ExternalArtifacts may live in namespaces other than the one of
+	// the ArtifactGenerator.
+	namespaces := make(map[string]struct{})
+	for _, ref := range obj.Status.Inventory {
+		namespaces[ref.Namespace] = struct{}{}
 	}
 
-	// Check if the number of ExternalArtifacts in the cluster matches the inventory
-	if len(eaList.Items) != len(obj.Status.Inventory) {
-		return true, nil
-	}
+	// Check if the number of ExternalArtifacts in the cluster matches the inventory.
+	total := 0
+	for namespace := range namespaces {
+		// Select the client based on the namespace of the ExternalArtifacts.
+		kubeClient := r.clientForNamespace(obj, impersonated, namespace)
 
-	// Check if the ExternalArtifacts in the cluster match the inventory
-	for _, ea := range eaList.Items {
-		if !obj.HasArtifactInInventory(ea.Name, ea.Namespace, ea.Status.Artifact.Digest) {
-			return true, nil
+		eaList := &sourcev1.ExternalArtifactList{}
+		if err := kubeClient.List(ctx, eaList, client.InNamespace(namespace),
+			client.MatchingLabels{
+				swapi.ArtifactGeneratorLabel: string(obj.GetUID()),
+			}); err != nil {
+			return true, fmt.Errorf("error listing external artifacts: %w", err)
 		}
+		total += len(eaList.Items)
+
+		// Check if the ExternalArtifacts in the cluster match the inventory.
+		for _, ea := range eaList.Items {
+			if ea.Status.Artifact == nil ||
+				!obj.HasArtifactInInventory(ea.Name, ea.Namespace, ea.Status.Artifact.Digest) {
+				return true, nil
+			}
+		}
+	}
+
+	if total != len(obj.Status.Inventory) {
+		return true, nil
 	}
 
 	return false, nil

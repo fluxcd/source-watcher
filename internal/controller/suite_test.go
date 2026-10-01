@@ -30,6 +30,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/yaml"
 
 	gotkconfig "github.com/fluxcd/pkg/artifact/config"
@@ -98,7 +99,34 @@ func TestMain(m *testing.M) {
 	}()
 	<-testEnv.Manager.Elected()
 
+	// Point controller-runtime's config loader at the test API server so that
+	// the impersonation client can build a REST config. The admin user has
+	// impersonation permissions.
+	adminUser, err := testEnv.AddUser(envtest.User{
+		Name:   "testenv-admin",
+		Groups: []string{"system:masters"},
+	}, nil)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create testenv-admin user: %v", err))
+	}
+	kubeconfig, err := adminUser.KubeConfig()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create testenv-admin kubeconfig: %v", err))
+	}
+	kubeconfigFile, err := os.CreateTemp("", "source-watcher-kubeconfig-*")
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create kubeconfig file: %v", err))
+	}
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		panic(fmt.Sprintf("Failed to write kubeconfig file: %v", err))
+	}
+	if err := kubeconfigFile.Close(); err != nil {
+		panic(fmt.Sprintf("Failed to close kubeconfig file: %v", err))
+	}
+	os.Setenv("KUBECONFIG", kubeconfigFile.Name())
+
 	code := m.Run()
+	_ = os.Remove(kubeconfigFile.Name())
 
 	fmt.Println("Stopping the test environment")
 	if err := testEnv.Stop(); err != nil {
