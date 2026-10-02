@@ -24,6 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
@@ -36,11 +37,12 @@ import (
 
 // finalize handles the finalization of the object during deletion.
 func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
-	obj *swapi.ArtifactGenerator) (ctrl.Result, error) {
+	obj *swapi.ArtifactGenerator,
+	impersonated client.Client) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Delete ExternalArtifacts found in the inventory.
-	r.finalizeExternalArtifacts(ctx, obj.Status.Inventory)
+	r.finalizeExternalArtifacts(ctx, obj, obj.Status.Inventory, impersonated)
 
 	// Remove the finalizer.
 	controllerutil.RemoveFinalizer(obj, swapi.Finalizer)
@@ -53,7 +55,9 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 // referenced in the provided list, along with their associated
 // artifacts in the storage backend.
 func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Context,
-	refs []swapi.ExternalArtifactReference) {
+	obj *swapi.ArtifactGenerator,
+	refs []swapi.ExternalArtifactReference,
+	impersonated client.Client) {
 	log := ctrl.LoggerFrom(ctx)
 
 	for _, eaRef := range refs {
@@ -73,7 +77,7 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Cont
 				Namespace: eaRef.Namespace,
 			},
 		}
-		err = r.Client.Delete(ctx, ea)
+		err = r.clientForNamespace(obj, impersonated, eaRef.Namespace).Delete(ctx, ea)
 		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to delete ExternalArtifact")
 		} else {

@@ -40,6 +40,7 @@ import (
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkstroage "github.com/fluxcd/pkg/artifact/storage"
 	gotkfetch "github.com/fluxcd/pkg/http/fetch"
+	gotkclient "github.com/fluxcd/pkg/runtime/client"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 	gotkjitter "github.com/fluxcd/pkg/runtime/jitter"
 	gotkpatch "github.com/fluxcd/pkg/runtime/patch"
@@ -63,6 +64,7 @@ type ArtifactGeneratorReconciler struct {
 	DependencyRequeueInterval time.Duration
 	NoCrossNamespaceRefs      bool
 	DirectSourceFetch         bool
+	DefaultServiceAccount     string
 }
 
 // +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators,verbs=get;list;watch;create;update;patchStatus;delete
@@ -91,9 +93,29 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}()
 
+	// Build the impersonation client only when at least one ExternalArtifact
+	// targets a namespace other than the ArtifactGenerator namespace. Output
+	// artifacts in the ArtifactGenerator namespace are always reconciled with
+	// the controller client, so enabling impersonation does not change the
+	// behavior of existing ArtifactGenerators.
+	var impersonated client.Client
+	if r.needsImpersonation(obj) {
+		var err error
+		impersonated, err = r.newImpersonatedClient(ctx, obj)
+		if err != nil {
+			err = fmt.Errorf("failed to build the impersonation client: %w", err)
+			gotkconditions.MarkFalse(obj,
+				gotkmeta.ReadyCondition,
+				swapi.AccessDeniedReason,
+				"%s", err.Error())
+			r.Event(obj, corev1.EventTypeWarning, swapi.AccessDeniedReason, err.Error())
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Finalize the reconciliation and release resources if the object is being deleted.
 	if !obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.finalize(ctx, obj)
+		return r.finalize(ctx, obj, impersonated)
 	}
 
 	// Add the finalizer if it does not exist.
@@ -115,13 +137,65 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Run drift detection and reconciliation.
-	return r.reconcile(ctx, obj, patcher)
+	return r.reconcile(ctx, obj, patcher, impersonated)
+}
+
+// needsImpersonation returns true when the controller must impersonate the
+// configured ServiceAccount to reconcile at least one ExternalArtifact, i.e.
+// when a ServiceAccount is configured and an output artifact or an inventory
+// reference targets a namespace other than the ArtifactGenerator namespace.
+func (r *ArtifactGeneratorReconciler) needsImpersonation(obj *swapi.ArtifactGenerator) bool {
+	if r.DefaultServiceAccount == "" && obj.Spec.ServiceAccountName == "" {
+		return false
+	}
+
+	for i := range obj.Spec.OutputArtifacts {
+		if obj.GetArtifactNamespace(&obj.Spec.OutputArtifacts[i]) != obj.Namespace {
+			return true
+		}
+	}
+
+	for _, ref := range obj.Status.Inventory {
+		if ref.Namespace != obj.Namespace {
+			return true
+		}
+	}
+
+	return false
+}
+
+// newImpersonatedClient returns a client that impersonates the ServiceAccount
+// configured on the ArtifactGenerator, or the controller default when the
+// object does not specify one.
+func (r *ArtifactGeneratorReconciler) newImpersonatedClient(ctx context.Context,
+	obj *swapi.ArtifactGenerator) (client.Client, error) {
+	impersonator := gotkclient.NewImpersonator(r.Client,
+		gotkclient.WithScheme(r.Scheme),
+		gotkclient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.Namespace))
+	kubeClient, _, err := impersonator.GetClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return kubeClient, nil
+}
+
+// clientForNamespace returns the client that must be used to reconcile
+// ExternalArtifacts in the given namespace. The impersonated client is used
+// only when the target namespace differs from the ArtifactGenerator namespace;
+// otherwise the controller client is returned.
+func (r *ArtifactGeneratorReconciler) clientForNamespace(obj *swapi.ArtifactGenerator,
+	impersonated client.Client, namespace string) client.Client {
+	if impersonated != nil && namespace != obj.Namespace {
+		return impersonated
+	}
+	return r.Client
 }
 
 // reconcile contains the main reconciliation logic for the ArtifactGenerator.
 func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	patcher *gotkpatch.SerialPatcher) (ctrl.Result, error) {
+	patcher *gotkpatch.SerialPatcher,
+	impersonated client.Client) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	oldObj := obj.DeepCopy()
 
@@ -157,7 +231,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// Detect drift between the actual state and the desired state.
 	// If no drift is detected in sources and the stored artifacts pass the
 	// integrity verification, the reconciliation is complete and we can exit early.
-	hasDrifted, reason := r.detectDrift(ctx, obj, observedSourcesDigest)
+	hasDrifted, reason := r.detectDrift(ctx, obj, observedSourcesDigest, impersonated)
 	if !hasDrifted {
 		msg := fmt.Sprintf("No drift detected, %d artifact(s) up to date", len(obj.Status.Inventory))
 		log.Info(msg)
@@ -218,10 +292,15 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// Prepare a slice to hold the references to the created ExternalArtifact objects.
 	eaRefs := make([]swapi.ExternalArtifactReference, 0, len(reqs))
 
+	// Collect ExternalArtifacts whose ownership is being taken over from
+	// another ArtifactGenerator to emit a single error log and a single
+	// summary event for this reconciliation.
+	var ownershipConflicts []ownershipConflict
+
 	for _, req := range reqs {
 		oa := req.OutputArtifact
 		// Build the artifact using the local sources.
-		artifact, err := artifactBuilder.Build(ctx, &oa, localSources, obj.Namespace, tmpDir)
+		artifact, err := artifactBuilder.Build(ctx, &oa, localSources, obj.GetArtifactNamespace(&oa), tmpDir)
 		if err != nil {
 			msg := fmt.Sprintf("%s build failed: %s", oa.Name, err.Error())
 			gotkconditions.MarkFalse(obj,
@@ -238,7 +317,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		// Reconcile the ExternalArtifact corresponding to the built artifact.
 		// The ExternalArtifact will reference the artifact stored in the storage backend.
 		// If the ExternalArtifact already exists, its status will be updated with the new artifact details.
-		eaRef, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact, req.Labels)
+		eaRef, conflict, err := r.reconcileExternalArtifact(ctx, obj, &oa, artifact, req.Labels, impersonated)
 		if err != nil {
 			msg := fmt.Sprintf("%s reconcile failed: %s", oa.Name, err.Error())
 			gotkconditions.MarkFalse(obj,
@@ -248,12 +327,26 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 			r.Event(obj, corev1.EventTypeWarning, gotkmeta.ReconciliationFailedReason, msg)
 			return ctrl.Result{}, err
 		}
+		if conflict != nil {
+			ownershipConflicts = append(ownershipConflicts, *conflict)
+		}
 		eaRefs = append(eaRefs, *eaRef)
+	}
+
+	// Log the ownership conflicts once per reconciliation with the exact
+	// ExternalArtifact references, and emit a single warning event on the
+	// ArtifactGenerator with only the count to keep the message short.
+	if len(ownershipConflicts) > 0 {
+		log.Error(fmt.Errorf("ownership conflict detected for %d ExternalArtifact(s)", len(ownershipConflicts)),
+			"taking over ExternalArtifacts from other ArtifactGenerators",
+			"artifacts", ownershipConflicts)
+		r.Event(obj, corev1.EventTypeWarning, swapi.OwnershipConflictReason,
+			fmt.Sprintf("ownership conflict detected for %d ExternalArtifact(s)", len(ownershipConflicts)))
 	}
 
 	// Garbage collect orphaned ExternalArtifacts and their associated artifacts in gotkstroage.
 	if orphans := r.findOrphanedReferences(obj.Status.Inventory, eaRefs); len(orphans) > 0 {
-		r.finalizeExternalArtifacts(ctx, orphans)
+		r.finalizeExternalArtifacts(ctx, obj, orphans, impersonated)
 	}
 
 	// Garbage collect old artifacts in storage according to the retention policy.
@@ -438,13 +531,20 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 
 // reconcileExternalArtifact ensures the ExternalArtifact object
 // exists and is up to date with the provided artifact details.
-// It returns a reference to the ExternalArtifact.
+// It returns a reference to the ExternalArtifact and, when the ExternalArtifact
+// was taken over from another ArtifactGenerator, the detected conflict.
 func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	outputArtifact *swapi.OutputArtifact,
 	artifact *gotkmeta.Artifact,
-	dynamicLabels map[string]string) (*swapi.ExternalArtifactReference, error) {
+	dynamicLabels map[string]string,
+	impersonated client.Client) (*swapi.ExternalArtifactReference, *ownershipConflict, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Select the client based on the target namespace. Output artifacts in the
+	// ArtifactGenerator namespace are always reconciled with the controller
+	// client, even when a ServiceAccount is configured for impersonation.
+	kubeClient := r.clientForNamespace(obj, impersonated, obj.GetArtifactNamespace(outputArtifact))
 
 	// Prepare labels for the ExternalArtifact with the managed-by and generator labels.
 	labels := make(map[string]string)
@@ -471,7 +571,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        outputArtifact.Name,
-			Namespace:   obj.Namespace,
+			Namespace:   obj.GetArtifactNamespace(outputArtifact),
 			Labels:      labels,
 			Annotations: annotations,
 		},
@@ -485,13 +585,19 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		},
 	}
 
+	// Detect ownership conflicts before applying the ExternalArtifact.
+	conflict, err := r.detectOwnershipConflict(ctx, obj, kubeClient, ea)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Apply the ExternalArtifact object.
 	forceApply := true
-	if err := r.Patch(ctx, ea, client.Apply, &client.PatchOptions{
+	if err := kubeClient.Patch(ctx, ea, client.Apply, &client.PatchOptions{
 		FieldManager: r.ControllerName,
 		Force:        &forceApply,
 	}); err != nil {
-		return nil, fmt.Errorf("failed to apply ExternalArtifact: %w", err)
+		return nil, nil, fmt.Errorf("failed to apply ExternalArtifact: %w", err)
 	}
 
 	// Update the status of the ExternalArtifact with the artifact details.
@@ -514,8 +620,8 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 			FieldManager: r.ControllerName,
 		},
 	}
-	if err := r.Status().Patch(ctx, ea, client.Apply, statusOpts); err != nil {
-		return nil, fmt.Errorf("failed to patchStatus ExternalArtifact status: %w", err)
+	if err := kubeClient.Status().Patch(ctx, ea, client.Apply, statusOpts); err != nil {
+		return nil, nil, fmt.Errorf("failed to patchStatus ExternalArtifact status: %w", err)
 	}
 
 	// Log if the artifact is up to date or emit an event if it is new or has changed.
@@ -534,7 +640,59 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		Namespace: ea.Namespace,
 		Digest:    artifact.Digest,
 		Filename:  filepath.Base(artifact.Path),
-	}, nil
+	}, conflict, nil
+}
+
+// ownershipConflict describes an ExternalArtifact that is being taken over
+// from another ArtifactGenerator.
+type ownershipConflict struct {
+	// ExternalArtifact is the namespace/name of the ExternalArtifact.
+	ExternalArtifact string `json:"externalArtifact"`
+	// ArtifactGenerator identifies the previous owner, as namespace/name when
+	// known, otherwise the generator label value.
+	ArtifactGenerator string `json:"artifactGenerator"`
+}
+
+// detectOwnershipConflict checks whether the ExternalArtifact is currently
+// owned by a different ArtifactGenerator. When the generator label points to
+// another ArtifactGenerator, the ownership is about to flip: a warning event
+// is emitted on the ExternalArtifact so that accidental overlaps are visible
+// to users. The ownership transfer is allowed to proceed to support moving
+// ExternalArtifacts from one ArtifactGenerator to another. The caller
+// aggregates the returned conflicts into a single log line and a single
+// ArtifactGenerator event.
+func (r *ArtifactGeneratorReconciler) detectOwnershipConflict(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
+	kubeClient client.Client,
+	ea *sourcev1.ExternalArtifact) (*ownershipConflict, error) {
+	existing := &sourcev1.ExternalArtifact{}
+	err := kubeClient.Get(ctx, client.ObjectKeyFromObject(ea), existing)
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ExternalArtifact: %w", err)
+	}
+
+	owner := existing.Labels[swapi.ArtifactGeneratorLabel]
+	if owner == "" || owner == string(obj.GetUID()) {
+		return nil, nil
+	}
+
+	previous := owner
+	if ref := existing.Spec.SourceRef; ref != nil {
+		previous = fmt.Sprintf("%s/%s", ref.Namespace, ref.Name)
+	}
+	conflict := &ownershipConflict{
+		ExternalArtifact:  fmt.Sprintf("%s/%s", existing.Namespace, existing.Name),
+		ArtifactGenerator: previous,
+	}
+
+	msg := fmt.Sprintf("ExternalArtifact %s is owned by ArtifactGenerator %s and is being taken over by %s/%s",
+		conflict.ExternalArtifact, conflict.ArtifactGenerator, obj.Namespace, obj.Name)
+	r.Event(existing, corev1.EventTypeWarning, swapi.OwnershipConflictReason, msg)
+
+	return conflict, nil
 }
 
 // findOrphanedReferences identifies ExternalArtifact references

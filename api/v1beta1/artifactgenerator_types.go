@@ -35,6 +35,7 @@ const (
 	AccessDeniedReason               = "AccessDenied"
 	ValidationFailedReason           = "ValidationFailed"
 	SourceFetchFailedReason          = "SourceFetchFailed"
+	OwnershipConflictReason          = "OwnershipConflict"
 	OverwriteStrategy                = "Overwrite"
 	MergeStrategy                    = "Merge"
 	ExtractStrategy                  = "Extract"
@@ -68,6 +69,22 @@ type ArtifactGeneratorSpec struct {
 	// +kubebuilder:validation:MaxItems=1000
 	// +required
 	Sources []SourceReference `json:"sources"`
+
+	// ServiceAccountName is the name of the ServiceAccount used to reconcile
+	// the generated ExternalArtifacts that target a namespace other than the
+	// ArtifactGenerator namespace. The ServiceAccount must exist in the
+	// ArtifactGenerator namespace. When specified, the controller impersonates
+	// this ServiceAccount for those ExternalArtifacts, and its RBAC bindings
+	// determine the namespaces in which they can be created, updated and
+	// deleted. ExternalArtifacts in the ArtifactGenerator namespace are always
+	// reconciled with the controller credentials.
+	// When not specified, the controller uses its own credentials, or the
+	// default ServiceAccount configured by the cluster administrator.
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// PathPattern specifies a directory traversal pattern to match within the sources.
 	// The format is "@<alias>/<pattern>". Named captures in the pattern (e.g. "{app}")
@@ -124,6 +141,16 @@ type OutputArtifact struct {
 	// +kubebuilder:validation:MaxLength=253
 	// +required
 	Name string `json:"name"`
+
+	// Namespace is the namespace of the generated artifact.
+	// If not provided, defaults to the same namespace as the ArtifactGenerator.
+	// When set to a different namespace, the controller reconciles the artifact
+	// with the credentials of .spec.serviceAccountName or the controller default.
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 
 	// Revision is the revision of the generated artifact.
 	// If specified, it must point to an existing source alias in the format "@<alias>".
@@ -264,6 +291,16 @@ func (in *ArtifactGenerator) SetLastHandledReconcileAt(value string) {
 func (in *ArtifactGenerator) IsDisabled() bool {
 	val, ok := in.GetAnnotations()[ReconcileAnnotation]
 	return ok && strings.ToLower(val) == DisabledValue
+}
+
+// GetArtifactNamespace returns the namespace where the ExternalArtifact
+// generated for the given OutputArtifact is created. It defaults to the
+// ArtifactGenerator namespace.
+func (in *ArtifactGenerator) GetArtifactNamespace(outputArtifact *OutputArtifact) string {
+	if outputArtifact.Namespace != "" {
+		return outputArtifact.Namespace
+	}
+	return in.Namespace
 }
 
 // HasArtifactInInventory returns true if the artifact with the given

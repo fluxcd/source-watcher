@@ -80,6 +80,7 @@ func main() {
 		httpRetry             int
 		reconciliationTimeout time.Duration
 		requeueDependency     time.Duration
+		defaultServiceAccount string
 
 		// GitOps Toolkit (gotk) runtime options.
 		// https://pkg.go.dev/github.com/fluxcd/pkg/runtime
@@ -105,6 +106,8 @@ func main() {
 		"The maximum duration of a reconciliation.")
 	flag.DurationVar(&requeueDependency, "requeue-dependency", 5*time.Second,
 		"The interval at which failing dependencies are reevaluated.")
+	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
+		"The default service account used for impersonation.")
 
 	aclOptions.BindFlags(flag.CommandLine)
 	artifactOptions.BindFlags(flag.CommandLine)
@@ -217,6 +220,7 @@ func main() {
 		DependencyRequeueInterval: requeueDependency,
 		DirectSourceFetch:         directSourceFetch,
 		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
+		DefaultServiceAccount:     defaultServiceAccount,
 	}).SetupWithManager(ctx, mgr, controller.ArtifactGeneratorReconcilerOptions{
 		RateLimiter: gotkctrl.GetRateLimiter(rateLimiterOptions),
 	}); err != nil {
