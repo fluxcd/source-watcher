@@ -515,7 +515,7 @@ func TestBuild(t *testing.T) {
 			spec, sources, workspace := tt.setupFunc(t)
 			artifact, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspace)
 			g.Expect(err).ToNot(HaveOccurred())
-			stagingDir := filepath.Join(workspace, spec.Name)
+			stagingDir := filepath.Join(workspace, "test-namespace", spec.Name)
 			tt.validateFunc(t, artifact, stagingDir)
 		})
 	}
@@ -764,7 +764,7 @@ func TestBuildErrors(t *testing.T) {
 			}
 			if err == nil {
 				t.Logf("Staging directory contents:")
-				walkErr := filepath.Walk(filepath.Join(workspace, spec.Name), func(path string, info os.FileInfo, err error) error {
+				walkErr := filepath.Walk(filepath.Join(workspace, "test-namespace", spec.Name), func(path string, info os.FileInfo, err error) error {
 					g.Expect(err).To(BeNil())
 					relPath, _ := filepath.Rel(workspace, path)
 					if info.IsDir() {
@@ -1060,7 +1060,7 @@ func TestBuildCopyDestinations(t *testing.T) {
 			sources := map[string]string{"source": srcDir}
 
 			_, err := testBuilder.Build(context.Background(), spec, sources, "test-namespace", workspaceDir)
-			stagingDir := filepath.Join(workspaceDir, spec.Name)
+			stagingDir := filepath.Join(workspaceDir, "test-namespace", spec.Name)
 
 			if tt.expectedError != "" {
 				g.Expect(err).To(MatchError(ContainSubstring(tt.expectedError)))
@@ -1710,8 +1710,10 @@ func TestBuildWithExcludes(t *testing.T) {
 			// Setup test data
 			spec, sources, workspaceDir := tt.setupFunc(t)
 
+			namespace := fmt.Sprintf("exclude-%d", i)
+
 			// Use the global test builder
-			artifact, err := testBuilder.Build(context.TODO(), spec, sources, fmt.Sprintf("exclude-%d", i), workspaceDir)
+			artifact, err := testBuilder.Build(context.TODO(), spec, sources, namespace, workspaceDir)
 
 			if tt.expectError {
 				g.Expect(err).To(HaveOccurred())
@@ -1723,7 +1725,7 @@ func TestBuildWithExcludes(t *testing.T) {
 			g.Expect(artifact).ToNot(BeNil())
 
 			// Validate the result
-			tt.validateFunc(t, artifact, workspaceDir)
+			tt.validateFunc(t, artifact, filepath.Join(workspaceDir, namespace))
 		})
 	}
 }

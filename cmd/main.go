@@ -72,14 +72,15 @@ func main() {
 	const controllerName = "source-watcher"
 
 	var (
-		metricsAddr           string
-		healthAddr            string
-		eventsAddr            string
-		concurrent            int
-		httpRetry             int
-		reconciliationTimeout time.Duration
-		requeueDependency     time.Duration
-		defaultServiceAccount string
+		metricsAddr             string
+		healthAddr              string
+		eventsAddr              string
+		concurrent              int
+		httpRetry               int
+		reconciliationTimeout   time.Duration
+		requeueDependency       time.Duration
+		defaultServiceAccount   string
+		disallowedFieldManagers []string
 
 		// GitOps Toolkit (gotk) runtime options.
 		// https://pkg.go.dev/github.com/fluxcd/pkg/runtime
@@ -106,7 +107,9 @@ func main() {
 	flag.DurationVar(&requeueDependency, "requeue-dependency", 5*time.Second,
 		"The interval at which failing dependencies are reevaluated.")
 	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
-		"The default service account used for impersonation.")
+		"The default ServiceAccount used to reconcile cross-namespace artifacts and managed namespaces when .spec.serviceAccountName is not set.")
+	flag.StringArrayVar(&disallowedFieldManagers, "override-manager", nil,
+		"Field manager disallowed to perform changes on managed resources.")
 
 	aclOptions.BindFlags(flag.CommandLine)
 	artifactOptions.BindFlags(flag.CommandLine)
@@ -225,6 +228,7 @@ func main() {
 		DirectSourceFetch:         directSourceFetch,
 		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
 		DefaultServiceAccount:     defaultServiceAccount,
+		DisallowedFieldManagers:   disallowedFieldManagers,
 	}).SetupWithManager(ctx, mgr, controller.ArtifactGeneratorReconcilerOptions{
 		RateLimiter: gotkctrl.GetRateLimiter(rateLimiterOptions),
 	}); err != nil {

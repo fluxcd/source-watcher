@@ -71,7 +71,7 @@ func TestBuild_ExtractStrategy(t *testing.T) {
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read the extracted config from staging directory
-				stagingDir := filepath.Join(workspaceDir, "extract-simple-archive")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-simple-archive")
 
 				configPath := filepath.Join(stagingDir, "manifests", "config.yaml")
 
@@ -144,7 +144,7 @@ env: production
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read the extracted config from staging directory
-				stagingDir := filepath.Join(workspaceDir, "extract-simple-archive")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-simple-archive")
 				configPath := filepath.Join(stagingDir, "config.yaml")
 
 				configContent, err := os.ReadFile(configPath)
@@ -235,7 +235,7 @@ env: int
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read the extracted config from staging directory
-				stagingDir := filepath.Join(workspaceDir, "extract-simple-archive")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-simple-archive")
 				configPath := filepath.Join(stagingDir, "config.yaml")
 
 				configContent, err := os.ReadFile(configPath)
@@ -342,7 +342,7 @@ env: int
 			},
 			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
-				stagingDir := filepath.Join(workspaceDir, "extract-to-subdir")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-to-subdir")
 
 				// Files should be in the nested directory
 				g.Expect(filepath.Join(stagingDir, "extracted", "configs", "config.yaml")).To(BeAnExistingFile())
@@ -376,7 +376,7 @@ env: int
 			},
 			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
-				stagingDir := filepath.Join(workspaceDir, "extract-tar-gz")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-tar-gz")
 				g.Expect(filepath.Join(stagingDir, "config.yaml")).To(BeAnExistingFile())
 				g.Expect(filepath.Join(stagingDir, "prod", "config.yaml")).To(BeAnExistingFile())
 			},
@@ -409,7 +409,7 @@ env: int
 			},
 			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
-				stagingDir := filepath.Join(workspaceDir, "extract-with-exclude")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-with-exclude")
 
 				// app.tgz contents should exist
 				g.Expect(filepath.Join(stagingDir, "config.yaml")).To(BeAnExistingFile())
@@ -486,7 +486,7 @@ env: second
 			},
 			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
-				stagingDir := filepath.Join(workspaceDir, "extract-overwrite")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-overwrite")
 
 				// config.yaml should have content from second.tgz (overwrote first)
 				configContent, err := os.ReadFile(filepath.Join(stagingDir, "config.yaml"))
@@ -528,7 +528,7 @@ env: second
 			},
 			validateFunc: func(t *testing.T, artifact *gotkmeta.Artifact, workspaceDir string) {
 				g := NewWithT(t)
-				stagingDir := filepath.Join(workspaceDir, "extract-skip-non-tarball")
+				stagingDir := filepath.Join(workspaceDir, "test-extract", "extract-skip-non-tarball")
 
 				// Tarball contents should be extracted
 				g.Expect(filepath.Join(stagingDir, "config.yaml")).To(BeAnExistingFile())
