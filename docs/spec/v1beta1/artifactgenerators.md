@@ -285,8 +285,8 @@ Each artifact must specify:
 - `name` (required): The name of the generated ExternalArtifact resource. It must be unique in the context
   of the ArtifactGenerator and must conform to Kubernetes resource naming conventions. Supports capture placeholders if `pathPattern` is used.
 - `namespace` (optional): The namespace where the generated ExternalArtifact is created.
-  If not specified, it defaults to the ArtifactGenerator namespace. See
-  [Cross-namespace Artifacts](#cross-namespace-artifacts).
+  If not specified, it defaults to the ArtifactGenerator namespace. Supports capture placeholders
+  if `pathPattern` is used. See [Cross-namespace Artifacts](#cross-namespace-artifacts).
 - `copy` (required): A list of copy operations to perform from sources to the artifact.
 - `revision` (optional): A specific source revision to use in the format `@alias`.
   If not specified, the revision is automatically computed as `latest@<digest>` based on the artifact content.
@@ -294,6 +294,14 @@ Each artifact must specify:
   in the format `@alias`. This is useful for the decomposition use case, where you want to track
   the original source revision of the artifact (e.g. the monorepo commit SHA) without affecting
   the artifact revision itself.
+- `inputsFrom` (optional): A source path in the format `@alias/path` or
+  `@artifact/path` pointing to a YAML file whose contents are exported in the
+  generated ExternalArtifact `.status.exportedInputs` field. Supports capture
+  placeholders when `pathPattern` is used. See [Artifact Inputs](#artifact-inputs).
+
+When `pathPattern` is not set, `name` and `namespace` are validated as a Kubernetes object name
+and namespace respectively. When `pathPattern` is set, these fields are treated as templates and
+the rendered values are validated instead.
 
 ```yaml
 spec:
@@ -421,6 +429,45 @@ Example of copy with `Extract` strategy:
 strategy, non-tarball files are silently skipped. For single file sources, the file must have
 a `.tar.gz` or `.tgz` extension. Directories are not supported with this strategy.
 
+### Artifact Inputs
+
+The `.spec.artifacts[].inputsFrom` field allows exporting structured data from a
+source or from the generated artifact itself, so that downstream consumers such
+as ResourceSet can consume it for templating. The field is a path in the format
+`@<alias>/<path>` (or `@artifact/<path>` for the generated artifact) pointing to
+a YAML file. The file must contain a YAML mapping; each top-level key becomes an
+entry in the `.status.exportedInputs` field of the generated ExternalArtifact.
+
+```yaml
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: my-monorepo
+  artifacts:
+    - name: my-app
+      inputsFrom: "@repo/apps/my-app/inputs.yaml"
+      copy:
+        - from: "@repo/apps/my-app/manifests/**"
+          to: "@artifact/"
+```
+
+Given an `inputs.yaml` file like:
+
+```yaml
+replicas: 3
+environment: production
+```
+
+the generated ExternalArtifact reports:
+
+```yaml
+status:
+  exportedInputs:
+    replicas: 3
+    environment: production
+```
+
 ### Common Metadata
 
 The `.spec.commonMetadata` field defines labels and annotations that are uniformly applied to all 
@@ -450,17 +497,17 @@ ExternalArtifact in a different namespace. This is useful for multi-tenant clust
 where the sources and the ArtifactGenerator run in a shared namespace, while the
 generated artifacts are consumed by tenants in their own namespaces.
 
-The controller uses the ServiceAccount credentials only for artifacts whose
-`.namespace` is set to a namespace different from the ArtifactGenerator namespace.
-For artifacts in the ArtifactGenerator namespace (the default when `.namespace` is not
-set), the controller always uses its own credentials, even when a ServiceAccount is
-configured. This keeps the behavior of existing ArtifactGenerators unchanged.
+When `.spec.serviceAccountName` is set, the controller impersonates that
+ServiceAccount for every generated ExternalArtifact, including the ones created
+in the ArtifactGenerator namespace. The ServiceAccount must exist in the
+ArtifactGenerator namespace, and its RBAC bindings determine which namespaces it
+can access.
 
-For artifacts targeting another namespace, the controller impersonates the ServiceAccount
-configured in `.spec.serviceAccountName`. The ServiceAccount must exist in the
-ArtifactGenerator namespace, and its RBAC bindings determine which namespaces it can
-access. When `.spec.serviceAccountName` is not specified, the controller uses its own
-credentials.
+When `.spec.serviceAccountName` is not specified, the controller uses its own
+credentials for artifacts in the ArtifactGenerator namespace (the default when
+`.namespace` is not set). For artifacts targeting another namespace, it uses the
+default ServiceAccount configured by the cluster administrator (see below), or
+its own credentials when no default is configured.
 
 For example, the following generator creates an ExternalArtifact in the `tenant-app`
 namespace, using the `tenant-artifacts` ServiceAccount:
@@ -487,9 +534,270 @@ spec:
 
 **Note** that on multi-tenant clusters, platform admins should configure a default
 ServiceAccount for impersonation by starting the controller with the
-`--default-service-account=<name>` flag. It is used whenever `.spec.serviceAccountName`
-is not specified, and, like `.spec.serviceAccountName`, it only applies to artifacts
-targeting a namespace different from the ArtifactGenerator namespace.
+`--default-service-account=<name>` flag. It is used whenever
+`.spec.serviceAccountName` is not specified, and only applies to artifacts
+targeting a namespace different from the ArtifactGenerator namespace and to the
+managed namespaces those artifacts target. Artifacts in the ArtifactGenerator
+namespace keep using the controller credentials unless `.spec.serviceAccountName`
+is set, so enabling the default does not change how in-namespace artifacts are
+reconciled. Set `.spec.serviceAccountName` when an ArtifactGenerator must be
+reconciled entirely with a specific ServiceAccount.
+
+When `pathPattern` is set, `.spec.artifacts[].namespace` may use capture placeholders,
+so each matched directory can be published to a namespace derived from the captured
+values. For example, the following generator decomposes a monorepo into one
+ExternalArtifact per tenant namespace:
+
+```yaml
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: tenants
+  namespace: flux-system
+spec:
+  serviceAccountName: tenant-artifacts
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: my-monorepo
+  pathPattern: "@repo/tenants/{tenant}/apps/{app}"
+  artifacts:
+    - name: "{app}"
+      namespace: "{tenant}"
+      copy:
+        - from: "@repo/tenants/{tenant}/apps/{app}/**"
+          to: "@artifact/"
+```
+
+The captured directory names are lowercased before being used as the artifact
+name and namespace, so a directory named `Tenant-A` is published to the
+`tenant-a` namespace. The rendered namespace must be a valid Kubernetes
+namespace; otherwise the reconciliation fails with a terminal error.
+
+### Namespace Management
+
+By default, the controller does not manage the namespaces targeted by the
+generated artifacts: they must already exist and are left untouched. The
+`.spec.namespaces` field can be used to make the controller the manager
+of those namespaces:
+
+- `.spec.namespaces.strategy` (required when `.spec.namespaces` is set):
+  `Unmanaged` or `Managed`. When `.spec.namespaces` is omitted, the target
+  namespaces are unmanaged.
+- `.spec.namespaces.prune` (optional): whether the controller deletes
+  managed namespaces that are no longer targeted by any generated artifact, or
+  when the ArtifactGenerator is deleted. Defaults to `false`. Individual
+  namespaces can be protected from deletion with the
+  `source.extensions.fluxcd.io/prune: Disabled` annotation.
+- `.spec.namespaces.metadata` (optional): defines how the metadata of the
+  managed namespaces is built, on top of `.spec.commonMetadata`. The metadata
+  is constructed by applying `.spec.commonMetadata` first, then the metadata
+  sourced from a `NamespaceMetadata` file, then the operations in `.from`, in
+  order. It has:
+  - `fromSource` (optional): sources metadata from a `NamespaceMetadata` file
+    inside a source artifact. It has:
+    - `path` (required): the path to the file, in the format `@<alias>/<path>`.
+      Supports capture placeholders when `pathPattern` is used.
+    - `allowedAnnotations` and `allowedLabels` (optional): schemas for the
+      annotations and labels that the file is allowed to set. Each key is an
+      annotation or label key and each value is a regular expression that the
+      corresponding value must match. Keys that are not present in the schema
+      are ignored, while values that do not match the respective regular
+      expression are rejected.
+  - `from` (optional): a list of metadata operations applied in order, after
+    `fromSource`. Each operation has:
+    - `strategy` (required): `Reset` clears all the existing labels and
+      annotations before applying the ones defined in the operation, `Override`
+      merges the ones defined in the operation into the existing values,
+      overriding existing keys, while `Merge` merges only the absent keys,
+      preserving existing values.
+    - `namespace` (required): the name of a desired namespace, or `*` to apply
+      the operation to all desired namespaces.
+    - `labels` and `annotations` (optional): the metadata to apply. The
+      `app.kubernetes.io/managed-by` and `source.extensions.fluxcd.io/generator`
+      labels are reserved by the controller and cannot be overridden.
+
+The `NamespaceMetadata` file allows tenants to provide additional metadata for
+their namespaces, for example to opt into platform features that are enabled via
+namespace metadata. It is a KRM-style configuration object read from a source
+artifact:
+
+```yaml
+# tenants/tenant-a/namespace-metadata.yaml
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: NamespaceMetadata
+metadata:
+  annotations:
+    foo: bar
+  labels:
+    baz: qux
+```
+
+The following example sources the namespace metadata from the monorepo, allows
+tenants to set the `observability` label to `enabled` or `disabled`, and lets
+platform admins override the metadata for a specific namespace:
+
+```yaml
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: tenants
+  namespace: flux-system
+spec:
+  commonMetadata:
+    labels:
+      app.kubernetes.io/part-of: tenants
+  sources:
+    - alias: repo
+      kind: OCIRepository
+      name: monorepo
+  namespaces:
+    strategy: Managed
+    metadata:
+      fromSource:
+        path: "@repo/tenants/{tenant}/namespace-metadata.yaml"
+        allowedLabels:
+          observability: "^(enabled|disabled)$"
+      from:
+        - strategy: Override
+          namespace: tenant-a
+          labels:
+            observability: disabled
+  pathPattern: "@repo/tenants/{tenant}"
+  artifacts:
+    - name: "{tenant}"
+      namespace: "{tenant}"
+      copy:
+        - from: "@repo/tenants/{tenant}/**"
+          to: "@artifact/"
+```
+
+When `.spec.namespaces.prune` is unset and the `DefaultToPruneNamespaces`
+feature gate is enabled with `--feature-gates=DefaultToPruneNamespaces=true`,
+the controller interprets the field as `true`. When the field is set, the
+feature gate is ignored. The feature gate is disabled by default.
+
+**Note:** both `.spec.namespaces.prune` and the `DefaultToPruneNamespaces`
+feature gate only apply when `.spec.namespaces.strategy` is explicitly set to
+`Managed`. With the `Unmanaged` strategy, or when `.spec.namespaces` is
+omitted, the controller never deletes namespaces.
+
+When set to `Managed`, the controller creates the namespaces that do not exist
+and applies `.spec.commonMetadata` to all of them, along with the
+`app.kubernetes.io/managed-by` and `source.extensions.fluxcd.io/generator`
+labels. Namespaces that already exist are adopted, and namespaces managed by
+another ArtifactGenerator are taken over, in both cases a warning event is
+emitted. Combined with `pathPattern`, this allows namespaces to be created and
+removed dynamically as directories are added or removed from the source.
+
+```yaml
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: tenants
+  namespace: flux-system
+spec:
+  namespaces:
+    strategy: Managed
+    prune: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/part-of: tenants
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: my-monorepo
+  pathPattern: "@repo/tenants/{tenant}"
+  artifacts:
+    - name: "{tenant}"
+      namespace: "{tenant}"
+      copy:
+        - from: "@repo/tenants/{tenant}/**"
+          to: "@artifact/"
+```
+
+**Warning:** pruning deletes the entire namespace and everything in it, and
+cannot be undone. If another Flux resource, such as a Kustomization or
+HelmRelease, also manages workloads in the namespace, pruning wipes those
+workloads. Only enable pruning when the namespaces are fully owned by the
+ArtifactGenerator. If a delete request is rejected by the API server, the
+namespace is kept in the inventory and the deletion is retried on the next
+reconciliation, keeping the ArtifactGenerator in the terminating state when
+it is being deleted.
+
+#### Controlling the apply behavior of managed namespaces
+
+To change the lifecycle behavior for specific managed namespaces, you can
+annotate them with:
+
+| Annotation | Default | Values | Role |
+| --- | --- | --- | --- |
+| `source.extensions.fluxcd.io/ssa` | `Override` | `Override`, `Merge`, `IfNotPresent`, `Ignore` | Apply policy |
+| `source.extensions.fluxcd.io/prune` | `Enabled` | `Enabled`, `Disabled` | Delete policy |
+
+**Note:** these annotations are meant for granular, per-object control. Set
+them on individual in-cluster Namespace objects, for example by another
+controller or with `kubectl annotate --field-manager=<name>`. They are not
+allowed in `.spec.commonMetadata.annotations`. Use `.spec.namespaces.prune`
+to control pruning for the whole ArtifactGenerator. The values are
+case-insensitive.
+
+##### `source.extensions.fluxcd.io/ssa`
+
+###### Override
+
+The `Override` policy instructs the controller to reconcile the namespace with
+the desired metadata defined in the ArtifactGenerator, taking ownership of
+fields managed by other field managers.
+
+Fields added with `kubectl` are treated as drift and reverted on the next
+reconciliation. To preserve fields added with `kubectl`, specify a field
+manager that does not start with `kubectl`, for example:
+
+```sh
+kubectl apply --field-manager=manual-admin -f namespace.yaml
+```
+
+###### Merge
+
+The `Merge` policy instructs the controller to preserve fields and metadata
+recorded by other field managers, for example the
+`kubectl.kubernetes.io/last-applied-configuration` annotation. The controller
+skips the metadata cleanup, while the fields defined in the ArtifactGenerator
+still override overlapping ones.
+
+###### IfNotPresent
+
+The `IfNotPresent` policy instructs the controller to only create the namespace
+when it is missing, leaving existing namespaces untouched.
+
+###### Ignore
+
+The `Ignore` policy instructs the controller to skip applying and deleting the
+namespace.
+
+Platform admins can extend the set of field managers whose ownership the
+controller takes over with one or more `--override-manager=<name>` flags. The
+names are matched exactly, and the fields managed by them are treated as drift
+in the same way as `kubectl` fields.
+
+##### `source.extensions.fluxcd.io/prune`
+
+When set to `Disabled`, the controller does not delete the namespace when it is
+no longer targeted by any generated artifact or when the ArtifactGenerator is
+deleted. The annotation is read from the in-cluster Namespace at deletion time
+and only prevents deletion: it does not override `.spec.namespaces.prune`.
+Namespaces are deleted only when pruning is enabled at the ArtifactGenerator
+level, and this annotation protects individual namespaces from that deletion.
+Setting the annotation to `Enabled` has no effect.
+
+Namespace management uses the same credentials as artifact generation. When
+`.spec.serviceAccountName` is set, the controller impersonates it. Otherwise,
+when `--default-service-account` is set, the controller impersonates the default
+for the namespaces targeted by cross-namespace artifacts; otherwise it uses its
+own credentials. Creating and deleting namespaces requires cluster-scoped RBAC,
+so the ServiceAccount must be bound to a `ClusterRole` granting the `namespaces`
+verbs.
 
 ## Working with ArtifactGenerators
 
@@ -501,10 +809,22 @@ the following annotation on the resource:
 ```yaml
 metadata:
   annotations:
-    source.extensions.fluxcd.io/reconcile: "Disabled"
+    source.extensions.fluxcd.io/reconcile: Disabled
 ```
 
 To resume reconciliation, remove the annotation or set its value to `Enabled`.
+
+To pause the management of a specific managed namespace, annotate the
+in-cluster Namespace with:
+
+```yaml
+source.extensions.fluxcd.io/reconcile: Disabled
+```
+
+**Note:** when the `source.extensions.fluxcd.io/reconcile` annotation is set to
+`Disabled` on a managed namespace, the controller no longer applies changes,
+nor does it delete the namespace. To resume management, remove the annotation
+from the in-cluster Namespace, or set it to `Enabled`.
 
 ### Trigger Reconciliation
 
@@ -520,6 +840,23 @@ metadata:
 The controller will pick up the annotation and start a reconciliation as soon as possible.
 After the reconciliation is complete, the controller sets the timestamp from the annotation
 in the `.status.lastHandledReconcileAt` field.
+
+### Reconciliation Interval
+
+The controller reconciles the ArtifactGenerator periodically to repair drift
+caused by other tools and controllers modifying the generated resources. The
+default interval is one hour and can be overridden by setting the following
+annotation to a [Go duration](https://pkg.go.dev/time#ParseDuration) string:
+
+```yaml
+metadata:
+  annotations:
+    source.extensions.fluxcd.io/reconcileEvery: 10m
+```
+
+The value must be a positive Go duration, otherwise it is ignored and the
+default interval is used. The interval is approximate and may be subject to
+jitter.
 
 ## ArtifactGenerator Status
 
@@ -600,9 +937,19 @@ When the ArtifactGenerator is stalled, the controller sets the following conditi
 
 ### Inventory
 
-The controller reports the list of generated ExternalArtifacts in the`.status.inventory`
-field of the ArtifactGenerator. The inventory is used by the controller to keep track
-of the artifacts in storage and to perform garbage collection of orphaned artifacts.
+The controller reports the list of objects managed by the ArtifactGenerator in
+the `.status.inventory` field. The inventory is used by the controller to keep
+track of the generated ExternalArtifacts and the managed namespaces, and to
+perform garbage collection of the ones that are no longer targeted.
+
+Each entry has a `kind`:
+
+- Generated artifacts have `kind: ExternalArtifact`, along with the `name`,
+  `namespace`, `digest` and `filename` of the referent. The `digest` is the
+  content digest of the artifact.
+- Managed namespaces have `kind: Namespace`, with the namespace `name` and a
+  `digest` computed from the metadata applied by the controller. The
+  `namespace` and `filename` fields are empty as namespaces are cluster-scoped.
 
 ## ArtifactGenerator Events
 
@@ -614,11 +961,12 @@ Events are emitted for the following scenarios:
 
 - ArtifactGenerator reconciliation completion (success or failure).
 - ExternalArtifacts creation, update, or deletion.
+- Namespaces creation, update, adoption, takeover, or deletion.
 - Source fetch failures or access issues.
 - Build failures (e.g. invalid glob patterns, missing files).
 - Storage operations (e.g. garbage collection, integrity validation failures).
-- Drift detection (e.g. manual changes to generated ExternalArtifacts).
-- Ownership conflicts (e.g. an ExternalArtifact generated by another ArtifactGenerator is taken over).
+- Drift detection (e.g. manual changes to generated ExternalArtifacts or managed namespaces).
+- Ownership conflicts (e.g. an ExternalArtifact or namespace managed by another ArtifactGenerator is taken over).
 
 All events are also logged to the controller's standard output and contain 
 the ArtifactGenerator name and namespace.

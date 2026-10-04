@@ -42,6 +42,8 @@ import (
 //   - "ArtifactCorrupted" - artifact exists in storage but fails integrity verification
 //   - "ExternalArtifactsNotFound" - failed to query in-cluster external artifacts
 //   - "ExternalArtifactsChanged" - in-cluster external artifacts differ from inventory
+//   - "NamespacesNotFound" - failed to query managed namespaces
+//   - "NamespacesChanged" - managed namespaces differ from inventory
 //   - "NoDriftDetected" - no drift detected and the storage is up to date
 func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
@@ -62,6 +64,15 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		return true, "GenerationChanged"
 	}
 
+	// Namespace metadata sourced from artifacts can only be computed after the
+	// sources are fetched, so always run the full reconciliation when it is
+	// configured and the metadata drift can then be corrected.
+	if obj.ManagesNamespaces() && obj.Spec.Namespaces.Metadata != nil &&
+		obj.Spec.Namespaces.Metadata.FromSource != nil {
+		log.Info("Drift detected, namespace metadata is sourced from artifacts")
+		return true, "NamespaceMetadataFromSource"
+	}
+
 	if obj.Status.ObservedSourcesDigest != currentSourcesDigest {
 		log.Info("Drift detected, sources have changed",
 			"old", obj.Status.ObservedSourcesDigest,
@@ -69,14 +80,25 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		return true, "SourcesChanged"
 	}
 
-	if len(obj.Status.Inventory) != len(obj.Spec.OutputArtifacts) && obj.Spec.PathPattern == "" {
+	// Count only the artifact entries, as the inventory also tracks
+	// managed namespaces.
+	artifactCount := 0
+	for _, ref := range obj.Status.Inventory {
+		if ref.Kind != swapi.NamespaceKind {
+			artifactCount++
+		}
+	}
+	if artifactCount != len(obj.Spec.OutputArtifacts) && obj.Spec.PathPattern == "" {
 		log.Info("Drift detected, number of output artifacts has changed",
-			"old", len(obj.Status.Inventory),
+			"old", artifactCount,
 			"new", len(obj.Spec.OutputArtifacts))
 		return true, "ArtifactsChanged"
 	}
 
 	for _, eaRef := range obj.Status.Inventory {
+		if eaRef.Kind == swapi.NamespaceKind {
+			continue
+		}
 		storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, eaRef.Filename)
 		artifact := gotkmeta.Artifact{
 			Digest: eaRef.Digest,
@@ -109,6 +131,16 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		return true, "ExternalArtifactsChanged"
 	}
 
+	nsDrift, err := r.detectNamespacesDrift(ctx, obj, impersonated)
+	if err != nil {
+		log.Error(err, "Failed to verify managed namespaces for drift")
+		return true, "NamespacesNotFound"
+	}
+	if nsDrift {
+		log.Info("Drift detected, managed namespaces have changed")
+		return true, "NamespacesChanged"
+	}
+
 	return false, "NoDriftDetected"
 }
 
@@ -118,12 +150,17 @@ func (r *ArtifactGeneratorReconciler) detectExternalArtifactsDrift(ctx context.C
 	obj *swapi.ArtifactGenerator,
 	impersonated client.Client) (bool, error) {
 
-	// Group the inventory references by namespace, as the generated
+	// Group the artifact inventory references by namespace, as the generated
 	// ExternalArtifacts may live in namespaces other than the one of
 	// the ArtifactGenerator.
 	namespaces := make(map[string]struct{})
+	artifactCount := 0
 	for _, ref := range obj.Status.Inventory {
+		if ref.Kind == swapi.NamespaceKind {
+			continue
+		}
 		namespaces[ref.Namespace] = struct{}{}
+		artifactCount++
 	}
 
 	// Check if the number of ExternalArtifacts in the cluster matches the inventory.
@@ -150,7 +187,7 @@ func (r *ArtifactGeneratorReconciler) detectExternalArtifactsDrift(ctx context.C
 		}
 	}
 
-	if total != len(obj.Status.Inventory) {
+	if total != artifactCount {
 		return true, nil
 	}
 

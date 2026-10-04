@@ -78,7 +78,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-generator",
 			Namespace: ns.Name,
-		}}, outputArtifact, artifact, nil, nil)
+		}}, outputArtifact, artifact, nil, nil, nil)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	tests := []struct {
@@ -113,7 +113,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 						},
 					},
 					ObservedSourcesDigest: "test123",
-					Inventory: []swapi.ExternalArtifactReference{
+					Inventory: []swapi.InventoryEntry{
 						{
 							Namespace: ns.Name,
 							Name:      "test-artifact",
@@ -223,7 +223,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 						},
 					},
 					ObservedSourcesDigest: "test123",
-					Inventory: []swapi.ExternalArtifactReference{
+					Inventory: []swapi.InventoryEntry{
 						{
 							Namespace: ns.Name,
 							Name:      "artifact-1",
@@ -259,7 +259,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 						},
 					},
 					ObservedSourcesDigest: "test123",
-					Inventory: []swapi.ExternalArtifactReference{
+					Inventory: []swapi.InventoryEntry{
 						{
 							Namespace: ns.Name,
 							Name:      "missing-artifact",
@@ -307,7 +307,7 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 						},
 					},
 					ObservedSourcesDigest: "test123",
-					Inventory: []swapi.ExternalArtifactReference{
+					Inventory: []swapi.InventoryEntry{
 						{
 							Namespace: ns.Name,
 							Name:      "test-artifact",

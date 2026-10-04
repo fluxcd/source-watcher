@@ -30,6 +30,9 @@ CONTROLLER_GEN_VERSION ?= v0.21.0
 
 # Download source-controller CRDs
 SOURCE_VER ?= $(shell go list -m all | grep github.com/fluxcd/source-controller/api | awk '{print $$2}')
+# Pseudo-versions are not valid git refs, so resolve the commit hash suffix
+# for the raw GitHub URLs. Release tags are used as-is.
+SOURCE_REF ?= $(shell echo $(SOURCE_VER) | sed -E 's/.*-([0-9a-f]{12})$$/\1/')
 SOURCE_CRD_VER=$(BUILD_DIR)/.src-crd-$(SOURCE_VER)
 GITREPO_CRD ?= config/crd/bases/gitrepositories.yaml
 BUCKET_CRD ?= config/crd/bases/buckets.yaml
@@ -62,19 +65,19 @@ $(SOURCE_CRD_VER):
 	touch $(SOURCE_CRD_VER)
 
 $(GITREPO_CRD):
-	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_gitrepositories.yaml -o $(GITREPO_CRD)
+	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_REF}/config/crd/bases/source.toolkit.fluxcd.io_gitrepositories.yaml -o $(GITREPO_CRD)
 
 $(BUCKET_CRD):
-	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_buckets.yaml -o $(BUCKET_CRD)
+	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_REF}/config/crd/bases/source.toolkit.fluxcd.io_buckets.yaml -o $(BUCKET_CRD)
 
 $(OCIREPO_CRD):
-	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_ocirepositories.yaml -o $(OCIREPO_CRD)
+	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_REF}/config/crd/bases/source.toolkit.fluxcd.io_ocirepositories.yaml -o $(OCIREPO_CRD)
 
 $(HELMCHART_CRD):
-	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_helmcharts.yaml -o $(HELMCHART_CRD)
+	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_REF}/config/crd/bases/source.toolkit.fluxcd.io_helmcharts.yaml -o $(HELMCHART_CRD)
 
 $(EA_CRD):
-	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_externalartifacts.yaml -o $(EA_CRD)
+	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_REF}/config/crd/bases/source.toolkit.fluxcd.io_externalartifacts.yaml -o $(EA_CRD)
 
 # Download the CRDs the controller depends on
 download-crd-deps: $(SOURCE_CRD_VER) $(GITREPO_CRD) $(BUCKET_CRD) $(OCIREPO_CRD) $(HELMCHART_CRD) $(EA_CRD)

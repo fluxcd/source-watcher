@@ -23,10 +23,19 @@ import (
 	feathelper "github.com/fluxcd/pkg/runtime/features"
 )
 
+// FeatureGateDefaultToPruneNamespaces controls whether an unset
+// .spec.namespaces.prune is interpreted as true. It only applies when
+// namespace management is enabled via .spec.namespaces.strategy 'Managed'.
+const FeatureGateDefaultToPruneNamespaces = "DefaultToPruneNamespaces"
+
 var features = map[string]bool{
 	// DirectSourceFetch
 	// opt-in from v2.1
 	controller.FeatureGateDirectSourceFetch: false,
+
+	// DefaultToPruneNamespaces
+	// opt-in from v2.3
+	FeatureGateDefaultToPruneNamespaces: false,
 }
 
 // FeatureGates contains a list of all supported feature gates and
