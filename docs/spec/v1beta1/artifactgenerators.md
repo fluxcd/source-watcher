@@ -94,9 +94,12 @@ spec:
       copy:
         - from: "@chart/"
           to: "@artifact/"
+        - from: "@repo/charts/podinfo/values.yaml"
+          to: "@artifact/podinfo/values.yaml"
+          strategy: Overwrite
         - from: "@repo/charts/podinfo/values-prod.yaml"
           to: "@artifact/podinfo/values.yaml"
-          strategy: Merge # Or `Overwrite` to replace the values.yaml
+          strategy: Merge
 ```
 
 The above generator will create an ExternalArtifact named `podinfo-composite` in the `apps` namespace,
