@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
 	"strings"
 
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -46,15 +47,21 @@ func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator)
 		}
 	}
 
-	// Validate output artifact.
-	nameMap := make(map[string]bool)
+	// Validate output artifacts. Artifacts are uniquely identified by their
+	// namespace and name, as the same name may be used in different namespaces.
+	type artifactKey struct {
+		namespace string
+		name      string
+	}
+	artifactMap := make(map[artifactKey]bool)
 	for _, artifact := range obj.Spec.OutputArtifacts {
-		// Check for duplicate artifact names.
-		if nameMap[artifact.Name] {
+		key := artifactKey{namespace: obj.GetArtifactNamespace(&artifact), name: artifact.Name}
+		if artifactMap[key] {
 			return r.newTerminalErrorFor(obj,
 				swapi.ValidationFailedReason,
-				"duplicate artifact name '%s' found", artifact.Name)
+				"duplicate artifact name '%s' found in namespace '%s'", artifact.Name, key.namespace)
 		}
+		artifactMap[key] = true
 
 		if obj.Spec.PathPattern == "" {
 			if errs := apivalidation.NameIsDNSSubdomain(artifact.Name, false); len(errs) > 0 {
@@ -62,6 +69,15 @@ func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator)
 					swapi.ValidationFailedReason,
 					"artifact name %q is not a valid Kubernetes object name: %s",
 					artifact.Name, strings.Join(errs, "; "))
+			}
+
+			if artifact.Namespace != "" {
+				if errs := apivalidation.ValidateNamespaceName(artifact.Namespace, false); len(errs) > 0 {
+					return r.newTerminalErrorFor(obj,
+						swapi.ValidationFailedReason,
+						"artifact namespace %q is not a valid Kubernetes namespace: %s",
+						artifact.Namespace, strings.Join(errs, "; "))
+				}
 			}
 		}
 
@@ -72,8 +88,66 @@ func (r *ArtifactGeneratorReconciler) validateSpec(obj *swapi.ArtifactGenerator)
 				"artifact %s revision source alias '%s' not found",
 				artifact.Name, strings.TrimPrefix(artifact.Revision, "@"))
 		}
-		nameMap[artifact.Name] = true
+
+		// Check that the origin revision source alias exists.
+		if artifact.OriginRevision != "" && !aliasMap[strings.TrimPrefix(artifact.OriginRevision, "@")] {
+			return r.newTerminalErrorFor(obj,
+				swapi.ValidationFailedReason,
+				"artifact %s origin revision source alias '%s' not found",
+				artifact.Name, strings.TrimPrefix(artifact.OriginRevision, "@"))
+		}
+
+		// Check that the inputs source alias exists and that capture
+		// placeholders are only used together with pathPattern.
+		if artifact.InputsFrom != "" {
+			if err := validateSourcePathAlias(artifact.InputsFrom, aliasMap); err != nil {
+				return r.newTerminalErrorFor(obj,
+					swapi.ValidationFailedReason,
+					"artifact %s inputsFrom %q: %s", artifact.Name, artifact.InputsFrom, err.Error())
+			}
+			if obj.Spec.PathPattern == "" && strings.ContainsAny(artifact.InputsFrom, "{}") {
+				return r.newTerminalErrorFor(obj,
+					swapi.ValidationFailedReason,
+					"artifact %s inputsFrom %q uses capture placeholders but pathPattern is not set",
+					artifact.Name, artifact.InputsFrom)
+			}
+		}
 	}
 
+	// Validate the namespace metadata source alias.
+	if ns := obj.Spec.Namespaces; ns != nil && ns.Metadata != nil && ns.Metadata.FromSource != nil {
+		path := ns.Metadata.FromSource.Path
+		if err := validateSourcePathAlias(path, aliasMap); err != nil {
+			return r.newTerminalErrorFor(obj,
+				swapi.ValidationFailedReason,
+				"namespaces metadata fromSource path %q: %s", path, err.Error())
+		}
+		if obj.Spec.PathPattern == "" && strings.ContainsAny(path, "{}") {
+			return r.newTerminalErrorFor(obj,
+				swapi.ValidationFailedReason,
+				"namespaces metadata fromSource path %q uses capture placeholders but pathPattern is not set", path)
+		}
+	}
+
+	return nil
+}
+
+// validateSourcePathAlias checks that the source path in the format
+// "@<alias>/<path>" references an existing source alias, allowing the special
+// "artifact" alias that refers to the generated artifact.
+func validateSourcePathAlias(path string, aliases map[string]bool) error {
+	if !strings.HasPrefix(path, "@") {
+		return fmt.Errorf("path must start with '@'")
+	}
+	parts := strings.SplitN(strings.TrimPrefix(path, "@"), "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("path must be in the format '@<alias>/<path>'")
+	}
+	if parts[0] == swapi.ArtifactAlias {
+		return nil
+	}
+	if !aliases[parts[0]] {
+		return fmt.Errorf("source alias '%s' not found", parts[0])
+	}
 	return nil
 }

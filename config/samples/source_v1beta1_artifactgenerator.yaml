@@ -26,8 +26,11 @@ spec:
     # The `revision` field specifies the source revision to use for the artifact.
     # It can be set to a source alias to use the latest revision of that source,
     # or if left empty, the revision is automatically set to the digest of the artifact content.
+    # The `inputsFrom` field specifies a source path to a YAML file whose contents
+    # are exported in the generated artifact `.status.exportedInputs` field.
     - name: podinfo
       revision: "@chart"
+      inputsFrom: "@repo/charts/podinfo/inputs.yaml"
       copy:
         - from: "@chart/**"
           to: "@artifact/"

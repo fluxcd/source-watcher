@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -319,6 +320,50 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "templated artifact namespace without pathPattern",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-templated-artifact-namespace-no-pattern",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = "{env}"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "artifact namespace exceeding max length",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-long-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = strings.Repeat("a", 64)
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "templated artifact namespace with pathPattern",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-templated-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				alias := obj.Spec.Sources[0].Alias
+				obj.Spec.PathPattern = "@" + alias + "/apps/{app}/envs/{env}"
+				obj.Spec.OutputArtifacts[0].Name = "{app}-{env}"
+				obj.Spec.OutputArtifacts[0].Namespace = "{env}"
+				obj.Spec.OutputArtifacts[0].Copy[0].From = "@" + alias + "/apps/{app}/envs/{env}/**"
+				obj.Spec.OutputArtifacts[0].Copy[0].To = "@artifact/"
+				return obj
+			},
+			expectError: false,
+		},
+		{
 			name: "valid service account name",
 			setupObj: func() *swapi.ArtifactGenerator {
 				objKey := client.ObjectKey{
@@ -340,6 +385,49 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 				}
 				obj := getArtifactGenerator(objKey)
 				obj.Spec.ServiceAccountName = "Invalid ServiceAccount"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "valid namespace strategy managed",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-valid-namespace-strategy",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				prune := false
+				obj.Spec.Namespaces = &swapi.Namespaces{
+					Strategy: swapi.NamespaceStrategyManaged,
+					Prune:    &prune,
+				}
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid namespace strategy name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-invalid-namespace-strategy",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.Namespaces = &swapi.Namespaces{Strategy: "Invalid"}
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "namespace strategy missing name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-namespace-strategy-missing-name",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.Namespaces = &swapi.Namespaces{}
 				return obj
 			},
 			expectError: true,

@@ -6,6 +6,7 @@ builds:
 release:
   extra_files:
     - glob: config/release/*.yaml
+    - glob: docs/namespacemetadata-v1beta1.json
   prerelease: auto
   footer: |
     ## Container images
@@ -24,6 +25,7 @@ changelog:
 checksum:
   extra_files:
     - glob: config/release/*.yaml
+    - glob: docs/namespacemetadata-v1beta1.json
 
 source:
   enabled: true

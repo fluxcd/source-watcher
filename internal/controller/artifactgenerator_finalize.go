@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,8 +43,17 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 	impersonated client.Client) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Delete ExternalArtifacts found in the inventory.
-	r.finalizeExternalArtifacts(ctx, obj, obj.Status.Inventory, impersonated)
+	// Delete the objects found in the inventory. Objects whose deletion is
+	// not confirmed are kept in the inventory so the finalizer is retried on
+	// the next reconciliation.
+	survivors := r.finalizeReferences(ctx, obj, obj.Status.Inventory, impersonated)
+	if len(survivors) > 0 {
+		obj.Status.Inventory = survivors
+		msg := fmt.Sprintf("failed to prune %d object(s), retrying", len(survivors))
+		gotkconditions.MarkFalse(obj, gotkmeta.ReadyCondition, gotkmeta.PruneFailedReason, "%s", msg)
+		r.Eventf(obj, nil, corev1.EventTypeWarning, gotkmeta.PruneFailedReason, swapi.ActionReconcile.String(), "%s", msg)
+		return ctrl.Result{}, fmt.Errorf("failed to prune %d object(s)", len(survivors))
+	}
 
 	// Remove the finalizer.
 	controllerutil.RemoveFinalizer(obj, swapi.Finalizer)
@@ -51,39 +62,72 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
-// finalizeExternalArtifacts deletes the ExternalArtifact resources
-// referenced in the provided list, along with their associated
-// artifacts in the storage backend.
-func (r *ArtifactGeneratorReconciler) finalizeExternalArtifacts(ctx context.Context,
+// finalizeReferences deletes the objects referenced in the provided list.
+// ExternalArtifacts are deleted along with their associated artifacts in the
+// storage backend. Managed namespaces are deleted only when pruning is enabled.
+// It returns the references whose deletion was not confirmed by the API server,
+// so the caller can keep them tracked and retry on the next reconciliation.
+func (r *ArtifactGeneratorReconciler) finalizeReferences(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	refs []swapi.ExternalArtifactReference,
-	impersonated client.Client) {
+	refs []swapi.InventoryEntry,
+	impersonated client.Client) []swapi.InventoryEntry {
 	log := ctrl.LoggerFrom(ctx)
+	var survivors []swapi.InventoryEntry
 
-	for _, eaRef := range refs {
-		// Delete from storage.
-		storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name, "*")
-		rmDir, err := r.Storage.RemoveAll(gotkmeta.Artifact{Path: storagePath})
-		if err != nil {
-			log.Error(err, "Failed to delete artifact from storage", "path", storagePath)
-		} else if rmDir != "" {
-			log.Info(fmt.Sprintf("%s/%s/%s deleted from storage", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name), "path", rmDir)
+	for _, ref := range refs {
+		if ref.Kind == swapi.NamespaceKind {
+			if !obj.ManagesNamespaces() || !obj.NamespacePrune(r.DefaultToPruneNamespaces) {
+				log.Info("Skipping managed namespace deletion, pruning is disabled", "namespace", ref.Name)
+				continue
+			}
+			if err := r.deleteNamespace(ctx, ref.Name, impersonated); err != nil {
+				log.Error(err, "Failed to delete Namespace, will retry", "namespace", ref.Name)
+				survivors = append(survivors, ref)
+			}
+			continue
 		}
 
-		// Delete from cluster.
-		ea := &sourcev1.ExternalArtifact{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      eaRef.Name,
-				Namespace: eaRef.Namespace,
-			},
-		}
-		err = r.clientForNamespace(obj, impersonated, eaRef.Namespace).Delete(ctx, ea)
-		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to delete ExternalArtifact")
-		} else {
-			log.Info(fmt.Sprintf("%s/%s/%s deleted from cluster", sourcev1.ExternalArtifactKind, eaRef.Namespace, eaRef.Name))
+		if err := r.finalizeExternalArtifact(ctx, obj, ref, impersonated); err != nil {
+			log.Error(err, "Failed to delete ExternalArtifact, will retry",
+				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name))
+			survivors = append(survivors, ref)
 		}
 	}
+	return survivors
+}
+
+// finalizeExternalArtifact deletes the ExternalArtifact referenced in the
+// provided entry, along with its associated artifact in the storage backend.
+// It returns an error when the deletion was not confirmed by the API server.
+func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
+	ref swapi.InventoryEntry,
+	impersonated client.Client) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Delete from storage.
+	var retErr error
+	storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name, "*")
+	if rmDir, err := r.Storage.RemoveAll(gotkmeta.Artifact{Path: storagePath}); err != nil {
+		retErr = fmt.Errorf("failed to delete artifact from storage: %w", err)
+	} else if rmDir != "" {
+		log.Info(fmt.Sprintf("%s/%s/%s deleted from storage", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name), "path", rmDir)
+	}
+
+	// Delete from cluster.
+	ea := &sourcev1.ExternalArtifact{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ref.Name,
+			Namespace: ref.Namespace,
+		},
+	}
+	if err := r.clientForNamespace(obj, impersonated, ref.Namespace).Delete(ctx, ea); err != nil && !apierrors.IsNotFound(err) {
+		retErr = errors.Join(retErr, fmt.Errorf("failed to delete ExternalArtifact: %w", err))
+	} else {
+		log.Info(fmt.Sprintf("%s/%s/%s deleted from cluster", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name))
+	}
+
+	return retErr
 }
 
 // addFinalizer sets the initial status conditions, adds the finalizer

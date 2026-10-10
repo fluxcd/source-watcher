@@ -72,14 +72,15 @@ func main() {
 	const controllerName = "source-watcher"
 
 	var (
-		metricsAddr           string
-		healthAddr            string
-		eventsAddr            string
-		concurrent            int
-		httpRetry             int
-		reconciliationTimeout time.Duration
-		requeueDependency     time.Duration
-		defaultServiceAccount string
+		metricsAddr             string
+		healthAddr              string
+		eventsAddr              string
+		concurrent              int
+		httpRetry               int
+		reconciliationTimeout   time.Duration
+		requeueDependency       time.Duration
+		defaultServiceAccount   string
+		disallowedFieldManagers []string
 
 		// GitOps Toolkit (gotk) runtime options.
 		// https://pkg.go.dev/github.com/fluxcd/pkg/runtime
@@ -106,7 +107,9 @@ func main() {
 	flag.DurationVar(&requeueDependency, "requeue-dependency", 5*time.Second,
 		"The interval at which failing dependencies are reevaluated.")
 	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
-		"The default service account used for impersonation.")
+		"The default service account used to reconcile cross-namespace artifacts and managed namespaces.")
+	flag.StringArrayVar(&disallowedFieldManagers, "override-manager", nil,
+		"Field manager disallowed to perform changes on managed resources.")
 
 	aclOptions.BindFlags(flag.CommandLine)
 	artifactOptions.BindFlags(flag.CommandLine)
@@ -201,6 +204,15 @@ func main() {
 		setupLog.Info("DirectSourceFetch feature gate is enabled, sources will be fetched directly from the API server bypassing the cache")
 	}
 
+	defaultToPruneNamespaces, err := features.Enabled(features.FeatureGateDefaultToPruneNamespaces)
+	if err != nil {
+		setupLog.Error(err, "unable to check feature gate "+features.FeatureGateDefaultToPruneNamespaces)
+		os.Exit(1)
+	}
+	if defaultToPruneNamespaces {
+		setupLog.Info("DefaultToPruneNamespaces feature gate is enabled, managed namespaces will be pruned when .spec.namespaces.prune is unset")
+	}
+
 	// Note that the liveness check will pass beyond this point, but the readiness
 	// check will continue to fail until this controller instance is elected leader.
 	gotkprobes.SetupChecks(mgr, setupLog)
@@ -223,8 +235,10 @@ func main() {
 		ArtifactFetchRetries:      httpRetry,
 		DependencyRequeueInterval: requeueDependency,
 		DirectSourceFetch:         directSourceFetch,
+		DefaultToPruneNamespaces:  defaultToPruneNamespaces,
 		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
 		DefaultServiceAccount:     defaultServiceAccount,
+		DisallowedFieldManagers:   disallowedFieldManagers,
 	}).SetupWithManager(ctx, mgr, controller.ArtifactGeneratorReconcilerOptions{
 		RateLimiter: gotkctrl.GetRateLimiter(rateLimiterOptions),
 	}); err != nil {

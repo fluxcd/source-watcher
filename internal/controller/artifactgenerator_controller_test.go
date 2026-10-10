@@ -841,7 +841,7 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotkte
 		},
 		Spec: sourcev1.OCIRepositorySpec{
 			URL:      "oci://ghcr.io/test/repository",
-			Interval: metav1.Duration{Duration: time.Minute},
+			Interval: &metav1.Duration{Duration: time.Minute},
 		},
 	}
 	b, _ := os.ReadFile(filepath.Join(testServer.Root(), artifactName))
@@ -1096,4 +1096,100 @@ func TestArtifactGeneratorReconciler_PathPattern(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(eaProd.Status.Artifact.Revision).To(Equal(oldProdRevision))
 	})
+}
+
+func TestArtifactGeneratorReconciler_needsImpersonation(t *testing.T) {
+	tests := []struct {
+		name                  string
+		defaultServiceAccount string
+		serviceAccountName    string
+		namespaces            *swapi.Namespaces
+		artifacts             []swapi.OutputArtifact
+		inventory             []swapi.InventoryEntry
+		want                  bool
+	}{
+		{
+			name:      "no service account configured",
+			artifacts: []swapi.OutputArtifact{{Name: "app", Namespace: "other"}},
+			want:      false,
+		},
+		{
+			name:               "explicit service account, in-namespace artifact",
+			serviceAccountName: "sa",
+			artifacts:          []swapi.OutputArtifact{{Name: "app"}},
+			want:               true,
+		},
+		{
+			name:               "explicit service account, cross-namespace artifact",
+			serviceAccountName: "sa",
+			artifacts:          []swapi.OutputArtifact{{Name: "app", Namespace: "other"}},
+			want:               true,
+		},
+		{
+			name:               "explicit service account, managed namespaces without external targets",
+			serviceAccountName: "sa",
+			namespaces:         &swapi.Namespaces{Strategy: swapi.NamespaceStrategyManaged},
+			artifacts:          []swapi.OutputArtifact{{Name: "app"}},
+			want:               true,
+		},
+		{
+			name:                  "default service account, in-namespace artifact",
+			defaultServiceAccount: "default-sa",
+			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
+			want:                  false,
+		},
+		{
+			name:                  "default service account, cross-namespace artifact",
+			defaultServiceAccount: "default-sa",
+			artifacts:             []swapi.OutputArtifact{{Name: "app", Namespace: "other"}},
+			want:                  true,
+		},
+		{
+			name:                  "default service account, managed namespaces without external targets",
+			defaultServiceAccount: "default-sa",
+			namespaces:            &swapi.Namespaces{Strategy: swapi.NamespaceStrategyManaged},
+			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
+			want:                  false,
+		},
+		{
+			name:                  "default service account, managed namespaces tracked in inventory",
+			defaultServiceAccount: "default-sa",
+			namespaces:            &swapi.Namespaces{Strategy: swapi.NamespaceStrategyManaged},
+			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
+			inventory:             []swapi.InventoryEntry{{Kind: swapi.NamespaceKind, Name: "other"}},
+			want:                  true,
+		},
+		{
+			name:                  "default service account, unmanaged strategy with namespace inventory",
+			defaultServiceAccount: "default-sa",
+			namespaces:            &swapi.Namespaces{Strategy: swapi.NamespaceStrategyUnmanaged},
+			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
+			inventory:             []swapi.InventoryEntry{{Kind: swapi.NamespaceKind, Name: "other"}},
+			want:                  false,
+		},
+		{
+			name:                  "default service account, cross-namespace artifact tracked in inventory",
+			defaultServiceAccount: "default-sa",
+			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
+			inventory:             []swapi.InventoryEntry{{Name: "app", Namespace: "other"}},
+			want:                  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			r := &ArtifactGeneratorReconciler{DefaultServiceAccount: tt.defaultServiceAccount}
+			obj := &swapi.ArtifactGenerator{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
+				Spec: swapi.ArtifactGeneratorSpec{
+					ServiceAccountName: tt.serviceAccountName,
+					Namespaces:         tt.namespaces,
+					OutputArtifacts:    tt.artifacts,
+				},
+				Status: swapi.ArtifactGeneratorStatus{Inventory: tt.inventory},
+			}
+			g.Expect(r.needsImpersonation(obj)).To(Equal(tt.want))
+		})
+	}
 }

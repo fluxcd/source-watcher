@@ -128,22 +128,35 @@ spec:
                         type: object
                       minItems: 1
                       type: array
+                    inputsFrom:
+                      description: |-
+                        InputsFrom specifies a source path to a YAML file whose contents are
+                        exported in the ExternalArtifact .status.exportedInputs field.
+                        The format is "@<alias>/<path>", where <alias> references a source or
+                        "artifact" for the generated artifact itself. When pathPattern is set,
+                        the path may use capture placeholders such as "{module}".
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
+                      type: string
                     name:
                       description: |-
                         Name is the name of the generated artifact.
                         When pathPattern is set, this field may use capture placeholders such as "{app}".
-                      maxLength: 253
-                      minLength: 1
+                        The maximum length accommodates capture placeholders; the effective
+                        limits are enforced by the CEL validation when pathPattern is not set.
+                      maxLength: 1024
                       type: string
                     namespace:
                       description: |-
                         Namespace is the namespace of the generated artifact.
                         If not provided, defaults to the same namespace as the ArtifactGenerator.
+                        When pathPattern is set, this field may use capture placeholders such as "{app}".
                         When set to a different namespace, the controller reconciles the artifact
                         with the credentials of .spec.serviceAccountName or the controller default.
-                      maxLength: 63
-                      minLength: 1
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        The maximum length accommodates capture placeholders; the effective
+                        limits are enforced by the CEL validation when pathPattern is not set.
+                      maxLength: 1024
                       type: string
                     originRevision:
                       description: |-
@@ -188,6 +201,125 @@ spec:
                     description: Labels to be added to the object's metadata.
                     type: object
                 type: object
+              namespaces:
+                description: |-
+                  Namespaces defines how the controller manages the namespaces
+                  targeted by the generated artifacts.
+                properties:
+                  metadata:
+                    description: |-
+                      Metadata defines how the metadata of the desired namespaces is built,
+                      on top of .spec.commonMetadata.
+                    properties:
+                      from:
+                        description: |-
+                          From is a list of metadata operations applied in order to the desired
+                          namespaces, on top of .spec.commonMetadata and .fromSource.
+                        items:
+                          description: |-
+                            NamespaceMetadataFrom defines a metadata operation applied to a desired
+                            namespace.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: Annotations to be applied to the namespace.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: Labels to be applied to the namespace.
+                              type: object
+                            namespace:
+                              description: |-
+                                Namespace is the name of the desired namespace the metadata applies to,
+                                or '*' to apply the metadata to all desired namespaces.
+                              maxLength: 63
+                              pattern: ^(\*|[a-z0-9]([-a-z0-9]*[a-z0-9])?)$
+                              type: string
+                            strategy:
+                              description: |-
+                                Strategy specifies how the labels and annotations are applied.
+                                'Reset' clears all the existing labels and annotations before applying
+                                the ones defined in the operation (fields that are not set clear the
+                                corresponding metadata), 'Override' merges the ones defined in the
+                                operation into the existing values, overriding existing keys, while
+                                'Merge' merges only the absent keys, preserving existing values.
+                              enum:
+                              - Reset
+                              - Override
+                              - Merge
+                              type: string
+                          required:
+                          - namespace
+                          - strategy
+                          type: object
+                        type: array
+                      fromSource:
+                        description: |-
+                          FromSource sources namespace metadata from a NamespaceMetadata file
+                          inside a source artifact.
+                        properties:
+                          allowedAnnotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              AllowedAnnotations is a schema for the annotations that the
+                              NamespaceMetadata file is allowed to set. Each key is an annotation key
+                              and each value is a regular expression that the annotation value must
+                              match. Annotations whose key is not present in this map are ignored,
+                              while annotations whose value does not match the respective regular
+                              expression are rejected.
+                            type: object
+                          allowedLabels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              AllowedLabels is a schema for the labels that the NamespaceMetadata
+                              file is allowed to set. Each key is a label key and each value is a
+                              regular expression that the label value must match. Labels whose key is
+                              not present in this map are ignored, while labels whose value does not
+                              match the respective regular expression are rejected.
+                            type: object
+                          path:
+                            description: |-
+                              Path is the path to the NamespaceMetadata file inside a source artifact,
+                              in the format "@<alias>/<path>". When pathPattern is set, the path may
+                              use capture placeholders such as "{namespace}".
+                            maxLength: 1024
+                            minLength: 1
+                            pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
+                            type: string
+                        required:
+                        - path
+                        type: object
+                    type: object
+                  prune:
+                    description: |-
+                      Prune specifies whether the controller deletes managed namespaces that
+                      are no longer targeted by any generated artifact, or when the
+                      ArtifactGenerator is deleted. Pruning only occurs when
+                      .spec.namespaces.strategy is 'Managed'. Defaults to false.
+                      When unset and the DefaultToPruneNamespaces feature gate is enabled,
+                      the field is considered set to true (pruning still only takes place if
+                      the strategy is explicitly set to Managed). When set, the feature gate
+                      is ignored.
+                    type: boolean
+                  strategy:
+                    description: |-
+                      Strategy specifies the namespace management strategy.
+                      'Unmanaged' leaves the target namespaces untouched, they must exist and
+                      are not modified by the controller.
+                      'Managed' makes the controller the manager of the target namespaces: it
+                      creates them when missing and applies the common metadata to them.
+                      When .spec.namespaces is omitted, namespaces are unmanaged.
+                    enum:
+                    - Unmanaged
+                    - Managed
+                    type: string
+                required:
+                - strategy
+                type: object
               pathPattern:
                 description: |-
                   PathPattern specifies a directory traversal pattern to match within the sources.
@@ -199,15 +331,16 @@ spec:
               serviceAccountName:
                 description: |-
                   ServiceAccountName is the name of the ServiceAccount used to reconcile
-                  the generated ExternalArtifacts that target a namespace other than the
-                  ArtifactGenerator namespace. The ServiceAccount must exist in the
-                  ArtifactGenerator namespace. When specified, the controller impersonates
-                  this ServiceAccount for those ExternalArtifacts, and its RBAC bindings
-                  determine the namespaces in which they can be created, updated and
-                  deleted. ExternalArtifacts in the ArtifactGenerator namespace are always
-                  reconciled with the controller credentials.
-                  When not specified, the controller uses its own credentials, or the
-                  default ServiceAccount configured by the cluster administrator.
+                  the generated ExternalArtifacts and the managed Namespaces. The
+                  ServiceAccount must exist in the ArtifactGenerator namespace. When
+                  specified, the controller impersonates this ServiceAccount for all
+                  generated ExternalArtifacts, including those in the ArtifactGenerator
+                  namespace, and its RBAC bindings determine the namespaces in which they
+                  can be created, updated and deleted.
+                  When not specified, the controller uses its own credentials for
+                  ExternalArtifacts in the ArtifactGenerator namespace, and the default
+                  ServiceAccount configured by the cluster administrator (when set) for
+                  artifacts targeting another namespace.
                 maxLength: 63
                 minLength: 1
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -267,7 +400,13 @@ spec:
             - message: artifact names must be valid Kubernetes object names when pathPattern
                 is not set
               rule: has(self.pathPattern) && size(self.pathPattern) > 0 || self.artifacts.all(a,
-                a.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'))
+                a.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')
+                && a.name.size() <= 253)
+            - message: artifact namespaces must be valid Kubernetes namespaces when
+                pathPattern is not set
+              rule: has(self.pathPattern) && size(self.pathPattern) > 0 || self.artifacts.all(a,
+                !has(a.__namespace__) || (a.__namespace__.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+                && a.__namespace__.size() <= 63))
           status:
             description: ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.
             properties:
@@ -329,30 +468,40 @@ spec:
                   type: object
                 type: array
               inventory:
-                description: Inventory contains the list of generated ExternalArtifact
-                  references.
+                description: |-
+                  Inventory contains the list of objects managed by the ArtifactGenerator,
+                  such as the generated ExternalArtifacts and the managed Namespaces.
                 items:
                   description: |-
-                    ExternalArtifactReference contains the reference to a
-                    generated ExternalArtifact along with its digest.
+                    InventoryEntry contains a reference to an object managed by the
+                    ArtifactGenerator, such as a generated ExternalArtifact or a managed
+                    Namespace.
                   properties:
                     digest:
-                      description: Digest of the referent artifact.
+                      description: |-
+                        Digest of the referent object. For generated artifacts this is the
+                        artifact content digest; for managed namespaces this is a digest of the
+                        metadata applied by the controller.
                       type: string
                     filename:
                       description: Filename is the name of the artifact file.
                       type: string
+                    kind:
+                      description: Kind is the kind of the referent object.
+                      enum:
+                      - ExternalArtifact
+                      - Namespace
+                      type: string
                     name:
-                      description: Name of the referent artifact.
+                      description: Name of the referent object.
                       type: string
                     namespace:
-                      description: Namespace of the referent artifact.
+                      description: Namespace of the referent object. Empty for cluster-scoped
+                        objects.
                       type: string
                   required:
                   - digest
-                  - filename
                   - name
-                  - namespace
                   type: object
                 type: array
               lastHandledReconcileAt:
