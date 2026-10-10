@@ -124,8 +124,25 @@ vet:
 	go vet ./...
 
 # Generate code
-generate: controller-gen
+generate: generate-api generate-json-schemas
+
+# Generate the deep copy methods for the API types.
+generate-api: controller-gen
 	cd api; $(CONTROLLER_GEN) object:headerFile="../hack/boilerplate.go.txt" paths="./..."
+
+# Generate the JSON Schemas for the KRM-style configuration APIs.
+generate-json-schemas: generate-api
+	@mkdir -p ./docs
+	go run ./tools/schema-gen \
+		-controller-gen "$(CONTROLLER_GEN)" \
+		-group "source.extensions.fluxcd.io" \
+		-version "v1beta1" \
+		-kind "NamespaceMetadata" \
+		-type "github.com/fluxcd/source-watcher/api/v2/v1beta1.NamespaceMetadataMetadata" \
+		-metadata \
+		-title "NamespaceMetadata is a KRM-style configuration object that allows tenants to provide additional metadata for the namespaces managed by an ArtifactGenerator." \
+		-id "https://raw.githubusercontent.com/fluxcd/source-watcher/main/docs/namespacemetadata-v1beta1.json" \
+		-out ./docs/namespacemetadata-v1beta1.json
 
 # Build the docker image
 docker-build:

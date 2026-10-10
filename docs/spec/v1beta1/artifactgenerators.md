@@ -633,6 +633,10 @@ metadata:
     baz: qux
 ```
 
+The NamespaceMetadata OpenAPI schema is published at
+[`docs/namespacemetadata-v1beta1.json`](https://raw.githubusercontent.com/fluxcd/source-watcher/main/docs/namespacemetadata-v1beta1.json)
+so that it can be consumed by validation tools such as `flux-schema`.
+
 The following example sources the namespace metadata from the monorepo, allows
 tenants to set the `observability` label to `enabled` or `disabled`, and lets
 platform admins override the metadata for a specific namespace:
@@ -734,13 +738,13 @@ annotate them with:
 | --- | --- | --- | --- |
 | `source.extensions.fluxcd.io/ssa` | `Override` | `Override`, `Merge`, `IfNotPresent`, `Ignore` | Apply policy |
 | `source.extensions.fluxcd.io/prune` | `Enabled` | `Enabled`, `Disabled` | Delete policy |
+| `source.extensions.fluxcd.io/externalFinalizer` | (none) | `group/version/kind/namespace/name/uid` | Finalization handoff |
 
 **Note:** these annotations are meant for granular, per-object control. Set
 them on individual in-cluster Namespace objects, for example by another
-controller or with `kubectl annotate --field-manager=<name>`. They are not
-allowed in `.spec.commonMetadata.annotations`. Use `.spec.namespaces.prune`
-to control pruning for the whole ArtifactGenerator. The values are
-case-insensitive.
+controller or with `kubectl annotate --field-manager=<name>`. Use
+`.spec.namespaces.prune` to control pruning for the whole ArtifactGenerator.
+The values are case-insensitive.
 
 ##### `source.extensions.fluxcd.io/ssa`
 
@@ -790,6 +794,49 @@ and only prevents deletion: it does not override `.spec.namespaces.prune`.
 Namespaces are deleted only when pruning is enabled at the ArtifactGenerator
 level, and this annotation protects individual namespaces from that deletion.
 Setting the annotation to `Enabled` has no effect.
+
+##### `source.extensions.fluxcd.io/externalFinalizer`
+
+A managed namespace can hand over its finalization to an external object, such
+as a ResourceSet, so that the external object performs the ordered garbage
+collection of the namespace after all the ExternalArtifacts it contains are
+gone. This is done with the `source.extensions.fluxcd.io/externalFinalizer`
+annotation, whose value is a fully qualified object reference:
+
+```
+group/version/kind/namespace/name/uid
+```
+
+The API version and the UID are mandatory. The group is empty for core
+resources, and the namespace is empty for cluster-scoped resources. For
+example:
+
+```yaml
+metadata:
+  annotations:
+    source.extensions.fluxcd.io/externalFinalizer: fluxcd.controlplane.io/v1/ResourceSet//tenants/6d7c0f20-9d1e-4a4d-9d3c-1c0e0e2f4b1a
+```
+
+When the annotation is present on a managed namespace, the controller checks
+that the referenced object exists in the cluster with the same UID before
+deleting the namespace, whether the deletion is triggered because no generated
+artifact targets the namespace anymore or because the ArtifactGenerator is
+being deleted. If the object exists, the controller skips the deletion and
+stops tracking the namespace, letting the external finalizer perform the
+deletion. If the object is missing, has a different UID (a recreated
+incarnation), or the annotation is malformed, the controller remains
+accountable and deletes the namespace as usual, so a failed handoff cannot leak
+it.
+
+The annotation is read from the in-cluster Namespace and must be set by an
+external actor. It is rejected when it appears in the metadata the controller
+computes for the namespace, including `.spec.commonMetadata.annotations`, the
+`NamespaceMetadata` file, and the `.spec.namespaces.metadata.from`
+operations, so that the controller cannot be tricked into handing over a
+namespace it is still accountable for. An object that takes over the
+finalization can recognize the special value `self` and stamp the fully
+qualified reference when the namespace is applied, but the controller only
+acts on the stamped reference.
 
 Namespace management uses the same credentials as artifact generation. When
 `.spec.serviceAccountName` is set, the controller impersonates it. Otherwise,

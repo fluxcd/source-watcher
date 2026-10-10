@@ -188,6 +188,24 @@ metadata:
 	_, _, err = r.namespaceMetadata(obj, "tenant-a",
 		map[string]string{"namespace": "tenant-a"}, map[string]string{"repo": dir}, "")
 	g.Expect(err).To(HaveOccurred())
+
+	// The reserved externalFinalizer annotation is rejected even when it comes
+	// from the NamespaceMetadata file, which the CRD cannot validate. Only the
+	// final desired namespace metadata is checked, so every source is covered.
+	g.Expect(os.WriteFile(filepath.Join(dir, "tenants", "tenant-a", "namespace-metadata.yaml"),
+		[]byte(`apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: NamespaceMetadata
+metadata:
+  annotations:
+    source.extensions.fluxcd.io/externalFinalizer: fluxcd.controlplane.io/v1/ResourceSet//tenants/uid
+`), 0o644)).To(Succeed())
+	obj.Spec.Namespaces.Metadata.FromSource.AllowedAnnotations = map[string]string{
+		swapi.ExternalFinalizerAnnotation: ".*",
+	}
+	_, _, err = r.namespaceMetadata(obj, "tenant-a",
+		map[string]string{"namespace": "tenant-a"}, map[string]string{"repo": dir}, "")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring(swapi.ExternalFinalizerAnnotation))
 }
 
 func TestArtifactGeneratorReconciler_ExportedInputs(t *testing.T) {

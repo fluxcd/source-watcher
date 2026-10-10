@@ -22,13 +22,12 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
 
-func TestArtifactGenerator_CommonMetadataAnnotationsValidation(t *testing.T) {
+func TestArtifactGenerator_CommonMetadataAnnotations(t *testing.T) {
 	g := NewWithT(t)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -62,20 +61,19 @@ func TestArtifactGenerator_CommonMetadataAnnotationsValidation(t *testing.T) {
 		}
 	}
 
-	// Object-level control annotations are rejected in commonMetadata.
+	// Object-level control annotations are accepted in commonMetadata; the
+	// controller does not restrict them at the API level.
 	controlAnnotations := []string{
 		swapi.SSAAnnotation,
 		swapi.PruneAnnotation,
 		swapi.ReconcileAnnotation,
 	}
 	for i, key := range controlAnnotations {
-		obj := newObj(fmt.Sprintf("rejected-%d", i))
+		obj := newObj(fmt.Sprintf("accepted-control-%d", i))
 		obj.Spec.CommonMetadata = &swapi.CommonMetadata{
-			Annotations: map[string]string{key: "disabled"},
+			Annotations: map[string]string{key: "Disabled"},
 		}
-		err := testClient.Create(ctx, obj)
-		g.Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected %s to be rejected", key)
-		g.Expect(err.Error()).To(ContainSubstring("commonMetadata must not set"))
+		g.Expect(testClient.Create(ctx, obj)).To(Succeed(), "expected %s to be accepted", key)
 	}
 
 	// Unrelated annotations are accepted.

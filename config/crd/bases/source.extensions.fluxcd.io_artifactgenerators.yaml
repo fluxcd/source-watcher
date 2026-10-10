@@ -407,13 +407,6 @@ spec:
               rule: has(self.pathPattern) && size(self.pathPattern) > 0 || self.artifacts.all(a,
                 !has(a.__namespace__) || (a.__namespace__.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
                 && a.__namespace__.size() <= 63))
-            - message: commonMetadata must not set source.extensions.fluxcd.io/ssa,
-                source.extensions.fluxcd.io/prune or source.extensions.fluxcd.io/reconcile;
-                set these annotations on individual objects
-              rule: '!has(self.commonMetadata) || !has(self.commonMetadata.annotations)
-                || (!(''source.extensions.fluxcd.io/ssa'' in self.commonMetadata.annotations)
-                && !(''source.extensions.fluxcd.io/prune'' in self.commonMetadata.annotations)
-                && !(''source.extensions.fluxcd.io/reconcile'' in self.commonMetadata.annotations))'
           status:
             description: ArtifactGeneratorStatus defines the observed state of ArtifactGenerator.
             properties:

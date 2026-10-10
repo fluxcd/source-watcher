@@ -302,6 +302,9 @@ func (r *ArtifactGeneratorReconciler) namespaceMetadata(
 	}
 
 	labels, annotations := r.namespaceMetadataFor(obj, namespace, sourcedLabels, sourcedAnnotations)
+	if err := validateNamespaceMetadataExternalFinalizer(namespace, labels, annotations); err != nil {
+		return nil, nil, err
+	}
 	return labels, annotations, nil
 }
 
@@ -572,6 +575,21 @@ func (r *ArtifactGeneratorReconciler) deleteNamespace(ctx context.Context,
 	impersonated client.Client) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	kubeClient := r.namespaceClient(impersonated)
+
+	// The namespace may delegate its finalization to an external object. When
+	// the referenced object exists, the controller hands off the deletion and
+	// stops tracking the namespace, so that the external finalizer can perform
+	// the ordered garbage collection.
+	externallyFinalized, err := r.namespaceExternallyFinalized(ctx, name, kubeClient)
+	if err != nil {
+		return err
+	}
+	if externallyFinalized {
+		log.Info("Skipping managed namespace deletion, finalization is delegated to an external object", "namespace", name)
+		return nil
+	}
+
 	ns := newNamespace(name, nil, nil)
 	opts := ssa.DefaultDeleteOptions()
 	opts.Exclusions = map[string]string{
@@ -580,7 +598,7 @@ func (r *ArtifactGeneratorReconciler) deleteNamespace(ctx context.Context,
 		swapi.SSAAnnotation:       swapi.IgnoreValue,
 	}
 
-	entry, err := r.newNamespaceManager(r.namespaceClient(impersonated)).Delete(ctx, ns, opts)
+	entry, err := r.newNamespaceManager(kubeClient).Delete(ctx, ns, opts)
 	if err != nil {
 		return err
 	}

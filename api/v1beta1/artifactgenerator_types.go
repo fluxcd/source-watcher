@@ -34,6 +34,7 @@ const (
 	ReconcileEveryAnnotation         = "source.extensions.fluxcd.io/reconcileEvery"
 	PruneAnnotation                  = "source.extensions.fluxcd.io/prune"
 	SSAAnnotation                    = "source.extensions.fluxcd.io/ssa"
+	ExternalFinalizerAnnotation      = "source.extensions.fluxcd.io/externalFinalizer"
 	ReconciliationDisabledReason     = "ReconciliationDisabled"
 	AccessDeniedReason               = "AccessDenied"
 	ValidationFailedReason           = "ValidationFailed"
@@ -71,7 +72,6 @@ type CommonMetadata struct {
 // ArtifactGeneratorSpec defines the desired state of ArtifactGenerator.
 // +kubebuilder:validation:XValidation:rule="has(self.pathPattern) && size(self.pathPattern) > 0 || self.artifacts.all(a, a.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$') && a.name.size() <= 253)",message="artifact names must be valid Kubernetes object names when pathPattern is not set"
 // +kubebuilder:validation:XValidation:rule="has(self.pathPattern) && size(self.pathPattern) > 0 || self.artifacts.all(a, !has(a.__namespace__) || (a.__namespace__.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && a.__namespace__.size() <= 63))",message="artifact namespaces must be valid Kubernetes namespaces when pathPattern is not set"
-// +kubebuilder:validation:XValidation:rule="!has(self.commonMetadata) || !has(self.commonMetadata.annotations) || (!('source.extensions.fluxcd.io/ssa' in self.commonMetadata.annotations) && !('source.extensions.fluxcd.io/prune' in self.commonMetadata.annotations) && !('source.extensions.fluxcd.io/reconcile' in self.commonMetadata.annotations))",message="commonMetadata must not set source.extensions.fluxcd.io/ssa, source.extensions.fluxcd.io/prune or source.extensions.fluxcd.io/reconcile; set these annotations on individual objects"
 type ArtifactGeneratorSpec struct {
 	// CommonMetadata specifies the common labels and annotations that are
 	// applied to all resources. Any existing label or annotation will be
