@@ -27,7 +27,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -206,7 +205,12 @@ func main() {
 	// check will continue to fail until this controller instance is elected leader.
 	gotkprobes.SetupChecks(mgr, setupLog)
 
-	eventRecorder := mustSetupEventRecorder(mgr, eventsAddr, controllerName)
+	eventRecorder, err := gotkevents.NewRecorder(ctrlruntime.Log, eventsAddr, controllerName,
+		gotkevents.WithManager(mgr))
+	if err != nil {
+		setupLog.Error(err, "unable to create event recorder")
+		os.Exit(1)
+	}
 
 	// Register the ArtifactGenerator controller with the manager.
 	if err = (&controller.ArtifactGeneratorReconciler{
@@ -214,7 +218,7 @@ func main() {
 		Client:                    mgr.GetClient(),
 		APIReader:                 mgr.GetAPIReader(),
 		Scheme:                    mgr.GetScheme(),
-		EventRecorder:             eventRecorder,
+		Recorder:                  eventRecorder,
 		Storage:                   artifactStorage,
 		ArtifactFetchRetries:      httpRetry,
 		DependencyRequeueInterval: requeueDependency,
@@ -271,13 +275,4 @@ func applyWatchOptions(mgrConfig *ctrlruntime.Options, controllerName string, wa
 	mgrConfig.Cache.ByObject[&swapi.ArtifactGenerator{}] = ctrlcache.ByObject{Label: watchSelector}
 
 	return nil
-}
-
-func mustSetupEventRecorder(mgr ctrlruntime.Manager, eventsAddr, controllerName string) record.EventRecorder {
-	eventRecorder, err := gotkevents.NewRecorder(mgr, ctrlruntime.Log, eventsAddr, controllerName)
-	if err != nil {
-		setupLog.Error(err, "unable to create event recorder")
-		os.Exit(1)
-	}
-	return eventRecorder
 }
