@@ -201,6 +201,17 @@ func TestBuild_GarbageCollection(t *testing.T) {
 	artifact3, err := testBuilder.Build(ctx, spec, sources, "gc", workspaceDir)
 	g.Expect(err).ToNot(HaveOccurred())
 
+	// GC deletes the oldest artifact first, based on file modification time.
+	// Builds that run one right after another can get the same timestamp,
+	// so GC can't tell which one is oldest. Give each file a different
+	// time (all within the retention period) to make the order clear.
+	now := time.Now()
+	for i, a := range []*gotkmeta.Artifact{artifact1, artifact2, artifact3} {
+		mtime := now.Add(time.Duration(i-3) * time.Minute)
+		err = os.Chtimes(testStorage.LocalPath(*a), mtime, mtime)
+		g.Expect(err).ToNot(HaveOccurred())
+	}
+
 	// GC should delete artifacts older than retention
 	storagePath := gotkstorage.ArtifactPath(sourcev1.ExternalArtifactKind, "gc", spec.Name, "*")
 	deleted, err := testStorage.GarbageCollect(ctx, gotkmeta.Artifact{Path: storagePath}, 2*time.Second)
