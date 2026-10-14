@@ -104,6 +104,6 @@ func (r *ArtifactGeneratorReconciler) newTerminalErrorFor(obj *swapi.ArtifactGen
 	terminalErr := fmt.Errorf(messageFormat, messageArgs...)
 	gotkconditions.MarkFalse(obj, gotkmeta.ReadyCondition, reason, "%s", terminalErr.Error())
 	gotkconditions.MarkStalled(obj, reason, "%s", terminalErr.Error())
-	r.Event(obj, corev1.EventTypeWarning, reason, terminalErr.Error())
+	r.Eventf(obj, nil, corev1.EventTypeWarning, reason, swapi.ActionReconcile.String(), "%s", terminalErr.Error())
 	return reconcile.TerminalError(terminalErr)
 }

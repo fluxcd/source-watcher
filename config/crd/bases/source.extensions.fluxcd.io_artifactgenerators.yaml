@@ -135,6 +135,16 @@ spec:
                       maxLength: 253
                       minLength: 1
                       type: string
+                    namespace:
+                      description: |-
+                        Namespace is the namespace of the generated artifact.
+                        If not provided, defaults to the same namespace as the ArtifactGenerator.
+                        When set to a different namespace, the controller reconciles the artifact
+                        with the credentials of .spec.serviceAccountName or the controller default.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
                     originRevision:
                       description: |-
                         OriginRevision is used to set the 'org.opencontainers.image.revision'
@@ -185,6 +195,22 @@ spec:
                   can be used as placeholders in OutputArtifacts fields.
                 maxLength: 1024
                 pattern: ^@([a-z0-9]([a-z0-9_-]*[a-z0-9])?)/(.*)$
+                type: string
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the name of the ServiceAccount used to reconcile
+                  the generated ExternalArtifacts that target a namespace other than the
+                  ArtifactGenerator namespace. The ServiceAccount must exist in the
+                  ArtifactGenerator namespace. When specified, the controller impersonates
+                  this ServiceAccount for those ExternalArtifacts, and its RBAC bindings
+                  determine the namespaces in which they can be created, updated and
+                  deleted. ExternalArtifacts in the ArtifactGenerator namespace are always
+                  reconciled with the controller credentials.
+                  When not specified, the controller uses its own credentials, or the
+                  default ServiceAccount configured by the cluster administrator.
+                maxLength: 63
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                 type: string
               sources:
                 description: |-

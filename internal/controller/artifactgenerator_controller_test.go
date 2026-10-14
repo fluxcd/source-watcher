@@ -36,6 +36,7 @@ import (
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotktestenv "github.com/fluxcd/pkg/runtime/testenv"
 	gotktestsrv "github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
@@ -250,7 +251,8 @@ func TestArtifactGeneratorReconciler_Reconcile(t *testing.T) {
 	g.Expect(updatedArtifact.Status.Artifact.Revision).To(Equal(ociRevision))
 
 	// Verify events were recorded
-	events := getEvents(obj.Name, obj.Namespace)
+	events, err := gotktestenv.GetEvents(ctx, testClient, obj.Name, obj.Namespace, nil)
+	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(events).ToNot(BeEmpty())
 	for _, e := range events {
 		g.Expect(e.Type).To(Equal(corev1.EventTypeNormal))
@@ -701,7 +703,7 @@ func getArtifactGeneratorReconciler() *ArtifactGeneratorReconciler {
 		Client:                    testClient,
 		APIReader:                 testClient,
 		Scheme:                    testEnv.Scheme(),
-		EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
+		Recorder:                  testEnv.GetEventRecorder(controllerName),
 		Storage:                   testStorage,
 		ArtifactFetchRetries:      1,
 		DependencyRequeueInterval: 5 * time.Second,

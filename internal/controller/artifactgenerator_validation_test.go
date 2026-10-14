@@ -27,6 +27,7 @@ import (
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	gotktestenv "github.com/fluxcd/pkg/runtime/testenv"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
@@ -136,7 +137,8 @@ func TestArtifactGeneratorReconciler_specValidation(t *testing.T) {
 			g.Expect(gotkconditions.GetReason(obj, gotkmeta.ReadyCondition)).To(Equal(tt.expectedReason))
 
 			// Verify event was recorded
-			events := getEvents(obj.Name, obj.Namespace)
+			events, err := gotktestenv.GetEvents(ctx, testClient, obj.Name, obj.Namespace, nil)
+			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(events).ToNot(BeEmpty())
 			g.Expect(events[0].Reason).To(Equal(tt.expectedReason))
 		})
@@ -286,6 +288,58 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 				}
 				obj := getArtifactGenerator(objKey)
 				obj.Spec.OutputArtifacts[0].Copy[0].To = "@artefact/file.yaml"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "valid artifact namespace",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-valid-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = "another-namespace"
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid artifact namespace",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-invalid-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = "Invalid-Namespace"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "valid service account name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-valid-service-account",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ServiceAccountName = "artifact-generator"
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid service account name",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-invalid-service-account",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ServiceAccountName = "Invalid ServiceAccount"
 				return obj
 			},
 			expectError: true,

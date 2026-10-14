@@ -109,8 +109,8 @@ dev-deploy: manifests
 
 # Run go tidy to cleanup go.mod
 tidy:
-	cd api; rm -f go.sum; go mod tidy -compat=1.26
-	rm -f go.sum; go mod tidy -compat=1.26
+	cd api; rm -f go.sum; go mod tidy -compat=1.27
+	rm -f go.sum; go mod tidy -compat=1.27
 
 # Run go fmt against code
 fmt:
