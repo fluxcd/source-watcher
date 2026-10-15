@@ -193,7 +193,7 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotkte
 		},
 		Spec: sourcev1.OCIRepositorySpec{
 			URL:      "oci://ghcr.io/test/repository",
-			Interval: metav1.Duration{Duration: time.Minute},
+			Interval: &metav1.Duration{Duration: time.Minute},
 		},
 	}
 	b, _ := os.ReadFile(filepath.Join(testServer.Root(), artifactName))

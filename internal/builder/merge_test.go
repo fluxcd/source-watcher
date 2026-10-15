@@ -93,7 +93,7 @@ env: production # This should add a new top-level field
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read the merged config from staging directory
-				stagingDir := filepath.Join(workspaceDir, "yaml-to-yaml-merge")
+				stagingDir := filepath.Join(workspaceDir, "test-merge", "yaml-to-yaml-merge")
 				configPath := filepath.Join(stagingDir, "config.yaml")
 
 				configContent, err := os.ReadFile(configPath)
@@ -155,7 +155,7 @@ env: production
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read the merged config from staging directory
-				stagingDir := filepath.Join(workspaceDir, "json-to-yaml-merge")
+				stagingDir := filepath.Join(workspaceDir, "test-merge", "json-to-yaml-merge")
 				configPath := filepath.Join(stagingDir, "config.yaml")
 
 				configContent, err := os.ReadFile(configPath)
@@ -219,7 +219,7 @@ image: my-app:latest
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read the merged config from staging directory
-				stagingDir := filepath.Join(workspaceDir, "yaml-to-yaml-dir-merge")
+				stagingDir := filepath.Join(workspaceDir, "test-merge", "yaml-to-yaml-dir-merge")
 				config1Path := filepath.Join(stagingDir, "config1.yaml")
 				config2Path := filepath.Join(stagingDir, "config2.yaml")
 
@@ -291,7 +291,7 @@ region: us-west-1
 				g := NewWithT(t)
 				g.Expect(artifact).ToNot(BeNil())
 
-				stagingDir := filepath.Join(workspaceDir, "yaml-merge-exclude")
+				stagingDir := filepath.Join(workspaceDir, "test-merge", "yaml-merge-exclude")
 
 				// config.yaml is merged from both sources.
 				configContent, err := os.ReadFile(filepath.Join(stagingDir, "config.yaml"))
@@ -336,7 +336,7 @@ region: us-west-1
 				g.Expect(artifact).ToNot(BeNil())
 
 				// Read config from staging directory (no merge needed)
-				stagingDir := filepath.Join(workspaceDir, "yaml-merge-no-dest")
+				stagingDir := filepath.Join(workspaceDir, "test-merge", "yaml-merge-no-dest")
 				configPath := filepath.Join(stagingDir, "config.yaml")
 
 				configContent, err := os.ReadFile(configPath)

@@ -18,16 +18,23 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
@@ -83,6 +90,64 @@ func TestArtifactGeneratorReconciler_Finalize(t *testing.T) {
 	err = testClient.Get(ctx, objKey, resultFinal)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+}
+
+func TestArtifactGeneratorReconciler_FinalizeReferencesSurvivors(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// A client whose Delete always fails, simulating an apiserver rejection
+	// such as RBAC or an admission webhook. The namespace must exist in the
+	// fake cluster, otherwise the server-side apply delete treats it as
+	// already deleted.
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "tenant", errors.New("forbidden"))
+	kubeClient := fake.NewClientBuilder().
+		WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant"}}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				return forbidden
+			},
+		}).Build()
+
+	reconciler := &ArtifactGeneratorReconciler{
+		Client:         kubeClient,
+		ControllerName: controllerName,
+		Storage:        testStorage,
+	}
+
+	obj := &swapi.ArtifactGenerator{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "src", UID: "uid"},
+		Spec: swapi.ArtifactGeneratorSpec{
+			ManagedNamespaces: &swapi.ManagedNamespaces{
+				Prune:        true,
+				AllowedNames: []string{"true"},
+			},
+		},
+	}
+
+	artifact := swapi.InventoryEntry{
+		Kind: sourcev1.ExternalArtifactKind,
+		Name: "ea", Namespace: "tenant", Filename: "ea.tar.gz",
+	}
+	namespace := swapi.InventoryEntry{
+		Kind: swapi.NamespaceKind, Name: "tenant",
+	}
+
+	// Both entries are survivors when their deletion is not confirmed.
+	survivors := reconciler.finalizeReferences(ctx, obj, []swapi.InventoryEntry{artifact, namespace}, kubeClient)
+	g.Expect(survivors).To(ConsistOf(artifact, namespace))
+
+	// Namespaces are not survivors when management is disabled.
+	unmanaged := obj.DeepCopy()
+	unmanaged.Spec.ManagedNamespaces = nil
+	survivors = reconciler.finalizeReferences(ctx, unmanaged, []swapi.InventoryEntry{namespace}, kubeClient)
+	g.Expect(survivors).To(BeEmpty())
+
+	// Namespaces are not deleted when pruning is disabled.
+	noPrune := obj.DeepCopy()
+	noPrune.Spec.ManagedNamespaces.Prune = false
+	survivors = reconciler.finalizeReferences(ctx, noPrune, []swapi.InventoryEntry{namespace}, kubeClient)
+	g.Expect(survivors).To(BeEmpty())
 }
 
 func TestArtifactGeneratorReconciler_Finalize_Disabled(t *testing.T) {

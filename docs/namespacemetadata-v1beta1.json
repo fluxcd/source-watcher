@@ -1,0 +1,42 @@
+{
+  "$id": "https://raw.githubusercontent.com/fluxcd/source-watcher/main/docs/namespacemetadata-v1beta1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "source.extensions.fluxcd.io/v1beta1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "NamespaceMetadata",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": false,
+      "description": "NamespaceMetadataMetadata holds the labels and annotations provided for a\nnamespace through a NamespaceMetadata file.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Annotations to be applied to the namespace.",
+          "type": "object"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Labels to be applied to the namespace.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind"
+  ],
+  "title": "NamespaceMetadata is a KRM-style configuration object that allows tenants to provide additional metadata for the namespaces managed by an ArtifactGenerator.",
+  "type": "object"
+}

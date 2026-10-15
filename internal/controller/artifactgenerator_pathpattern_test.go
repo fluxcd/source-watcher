@@ -191,6 +191,139 @@ func TestBuildArtifactRequests(t *testing.T) {
 		}
 	})
 
+	t.Run("renders artifact namespace from captures", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}/envs/{env}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{
+						Name:      "{app}-{env}",
+						Namespace: "{env}-ns",
+						Copy: []swapi.CopyOperation{
+							{From: "apps/{app}/envs/{env}", To: "."},
+						},
+					},
+				},
+			},
+		}
+		reqs, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(reqs).To(gomega.HaveLen(2))
+
+		namespaces := []string{reqs[0].Namespace, reqs[1].Namespace}
+		g.Expect(namespaces).To(gomega.ConsistOf("dev-ns", "prod-ns"))
+	})
+
+	t.Run("static artifact namespace with captures in name", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}/envs/{env}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{
+						Name:      "{app}-{env}",
+						Namespace: "static-ns",
+						Copy: []swapi.CopyOperation{
+							{From: "apps/{app}/envs/{env}", To: "."},
+						},
+					},
+				},
+			},
+		}
+		reqs, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(reqs).To(gomega.HaveLen(2))
+		for _, r := range reqs {
+			g.Expect(r.Namespace).To(gomega.Equal("static-ns"))
+		}
+	})
+
+	t.Run("invalid rendered namespace", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}/envs/{env}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{
+						Name:      "{app}-{env}",
+						Namespace: "ns_{env}",
+						Copy: []swapi.CopyOperation{
+							{From: "apps/{app}/envs/{env}", To: "."},
+						},
+					},
+				},
+			},
+		}
+		_, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(isTerminalPathPatternError(err)).To(gomega.BeTrue())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("not a valid Kubernetes namespace"))
+	})
+
+	t.Run("unknown capture placeholder in namespace", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{Name: "app-{app}", Namespace: "{missing}"},
+				},
+			},
+		}
+		_, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("capture variable \"missing\" is not defined by pathPattern"))
+	})
+
+	t.Run("same artifact name in different namespaces", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}/envs/{env}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{
+						Name:      "{app}",
+						Namespace: "{env}",
+						Copy: []swapi.CopyOperation{
+							{From: "apps/{app}/envs/{env}", To: "."},
+						},
+					},
+				},
+			},
+		}
+		reqs, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(reqs).To(gomega.HaveLen(2))
+		for _, r := range reqs {
+			g.Expect(r.Name).To(gomega.Equal("auth"))
+		}
+		namespaces := []string{reqs[0].Namespace, reqs[1].Namespace}
+		g.Expect(namespaces).To(gomega.ConsistOf("dev", "prod"))
+	})
+
+	t.Run("duplicate name in same namespace", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		obj := &swapi.ArtifactGenerator{
+			Spec: swapi.ArtifactGeneratorSpec{
+				PathPattern: "@repo/apps/{app}/envs/{env}",
+				OutputArtifacts: []swapi.OutputArtifact{
+					{
+						Name:      "{app}",
+						Namespace: "fixed-ns",
+						Copy: []swapi.CopyOperation{
+							{From: "apps/{app}/envs/{env}", To: "."},
+						},
+					},
+				},
+			},
+		}
+		_, err := buildArtifactRequests(obj, localSources)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("both resolve to artifact name"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("in namespace \"fixed-ns\""))
+	})
+
 	t.Run("unknown capture placeholder", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 		obj := &swapi.ArtifactGenerator{

@@ -60,8 +60,10 @@ func (r *ArtifactBuilder) Build(ctx context.Context,
 	sources map[string]string,
 	namespace string,
 	workspace string) (*gotkmeta.Artifact, error) {
-	// Create a dir to stage the artifact files.
-	stagingDir := filepath.Join(workspace, spec.Name)
+	// Create a dir to stage the artifact files. The namespace is part of the
+	// staging path because distinct artifacts may share a name across
+	// namespaces and must not share a staging directory.
+	stagingDir := filepath.Join(workspace, namespace, spec.Name)
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create staging dir: %w", err)
 	}
