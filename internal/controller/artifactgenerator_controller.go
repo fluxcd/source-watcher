@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"maps"
@@ -67,6 +68,7 @@ type ArtifactGeneratorReconciler struct {
 	DirectSourceFetch         bool
 	DefaultServiceAccount     string
 	DisallowedFieldManagers   []string
+	ArtifactServerTLSConfig   *tls.Config
 }
 
 // +kubebuilder:rbac:groups=source.extensions.fluxcd.io,resources=artifactgenerators,verbs=get;list;watch;create;update;patchStatus;delete
@@ -740,13 +742,17 @@ func (r *ArtifactGeneratorReconciler) fetchSources(ctx context.Context,
 		}
 
 		// Download artifact and extract files to the source alias dir.
-		fetcher := gotkfetch.New(
+		fetchOpts := []gotkfetch.Option{
 			gotkfetch.WithLogger(ctrl.LoggerFrom(ctx)),
 			gotkfetch.WithRetries(r.ArtifactFetchRetries),
 			gotkfetch.WithMaxDownloadSize(gotktar.UnlimitedUntarSize),
 			gotkfetch.WithUntar(gotktar.WithMaxUntarSize(gotktar.UnlimitedUntarSize)),
 			gotkfetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
-		)
+		}
+		if r.ArtifactServerTLSConfig != nil {
+			fetchOpts = append(fetchOpts, gotkfetch.WithTLSConfig(r.ArtifactServerTLSConfig))
+		}
+		fetcher := gotkfetch.New(fetchOpts...)
 		if err := fetcher.FetchWithContext(ctx, src.URL, src.Digest, srcDir); err != nil {
 			return nil, err
 		}

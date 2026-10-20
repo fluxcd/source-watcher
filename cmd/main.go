@@ -17,11 +17,13 @@ limitations under the License.
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"os"
 	"time"
 
 	flag "github.com/spf13/pflag"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -48,6 +50,7 @@ import (
 	gotklogger "github.com/fluxcd/pkg/runtime/logger"
 	gotkpprof "github.com/fluxcd/pkg/runtime/pprof"
 	gotkprobes "github.com/fluxcd/pkg/runtime/probes"
+	fluxspiffe "github.com/fluxcd/pkg/spiffe"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
@@ -94,6 +97,10 @@ func main() {
 		logOptions            gotklogger.Options
 		rateLimiterOptions    gotkctrl.RateLimiterOptions
 		watchOptions          gotkctrl.WatchOptions
+
+		authorizedArtifactClients []string
+		authorizedArtifactServers []string
+		authorizedEventServers    []string
 	)
 
 	flag.IntVar(&concurrent, "concurrent", 10, "The number of concurrent resource reconciles.")
@@ -110,6 +117,12 @@ func main() {
 		"The default ServiceAccount used to reconcile cross-namespace artifacts and managed namespaces when .spec.serviceAccountName is not set.")
 	flag.StringArrayVar(&disallowedFieldManagers, "override-manager", nil,
 		"Field manager disallowed to perform changes on managed resources.")
+	flag.StringArrayVar(&authorizedArtifactClients, fluxspiffe.ControllerFlagAuthorizedArtifactClientSPIFFEID, nil,
+		"SPIFFE ID authorized to fetch artifacts from the artifact server. Can be repeated.")
+	flag.StringArrayVar(&authorizedArtifactServers, fluxspiffe.ControllerFlagAuthorizedArtifactServerSPIFFEID, nil,
+		"SPIFFE ID of an artifact server authorized to serve artifacts. Can be repeated.")
+	flag.StringArrayVar(&authorizedEventServers, fluxspiffe.ControllerFlagAuthorizedEventServerSPIFFEID, nil,
+		"SPIFFE ID of an event server authorized to receive events. Can be repeated.")
 
 	aclOptions.BindFlags(flag.CommandLine)
 	artifactOptions.BindFlags(flag.CommandLine)
@@ -207,9 +220,59 @@ func main() {
 	// Note that the liveness check will pass beyond this point, but the readiness
 	// check will continue to fail until this controller instance is elected leader.
 	gotkprobes.SetupChecks(mgr, setupLog)
+	if err := mgr.AddReadyzCheck("leader-election", gotkprobes.LeaderElectedReadyz(mgr.Elected())); err != nil {
+		setupLog.Error(err, "unable to create leader election readiness check")
+		os.Exit(1)
+	}
 
+	var artifactServerTLSConfig, eventTLSConfig *tls.Config
+	if len(authorizedArtifactClients) > 0 || len(authorizedArtifactServers) > 0 || len(authorizedEventServers) > 0 {
+		source, err := workloadapi.NewX509Source(ctx)
+		if err != nil {
+			setupLog.Error(err, "unable to create SPIFFE X.509 source")
+			os.Exit(1)
+		}
+		defer func() {
+			if err := source.Close(); err != nil {
+				setupLog.Error(err, "unable to close SPIFFE X.509 source")
+			}
+		}()
+
+		if len(authorizedArtifactClients) > 0 {
+			artifactTLSConfig, err := fluxspiffe.BuildTLSConfig(source, authorizedArtifactClients...)
+			if err != nil {
+				setupLog.Error(err, "unable to configure SPIFFE mTLS for the artifact server")
+				os.Exit(1)
+			}
+			setupLog.Info("artifact server will use inter-controller mTLS via SPIFFE", "spiffeIDs", authorizedArtifactClients)
+			artifactOptions.TLSConfig = artifactTLSConfig
+		}
+
+		if len(authorizedArtifactServers) > 0 {
+			artifactServerTLSConfig, err = fluxspiffe.BuildTLSConfig(source, authorizedArtifactServers...)
+			if err != nil {
+				setupLog.Error(err, "unable to configure SPIFFE mTLS for the artifact fetcher")
+				os.Exit(1)
+			}
+			setupLog.Info("artifact fetcher will use inter-controller mTLS via SPIFFE", "spiffeIDs", authorizedArtifactServers)
+		}
+
+		if len(authorizedEventServers) > 0 {
+			eventTLSConfig, err = fluxspiffe.BuildTLSConfig(source, authorizedEventServers...)
+			if err != nil {
+				setupLog.Error(err, "unable to configure SPIFFE mTLS for the event server")
+				os.Exit(1)
+			}
+			setupLog.Info("event server will use inter-controller mTLS via SPIFFE", "spiffeIDs", authorizedEventServers)
+		}
+	}
+
+	eventRecorderOpts := []gotkevents.RecorderOption{gotkevents.WithManager(mgr)}
+	if eventTLSConfig != nil {
+		eventRecorderOpts = append(eventRecorderOpts, gotkevents.WithTLSConfig(eventTLSConfig))
+	}
 	eventRecorder, err := gotkevents.NewRecorder(ctrlruntime.Log, eventsAddr, controllerName,
-		gotkevents.WithManager(mgr))
+		eventRecorderOpts...)
 	if err != nil {
 		setupLog.Error(err, "unable to create event recorder")
 		os.Exit(1)
@@ -229,6 +292,7 @@ func main() {
 		NoCrossNamespaceRefs:      aclOptions.NoCrossNamespaceRefs,
 		DefaultServiceAccount:     defaultServiceAccount,
 		DisallowedFieldManagers:   disallowedFieldManagers,
+		ArtifactServerTLSConfig:   artifactServerTLSConfig,
 	}).SetupWithManager(ctx, mgr, controller.ArtifactGeneratorReconcilerOptions{
 		RateLimiter: gotkctrl.GetRateLimiter(rateLimiterOptions),
 	}); err != nil {
