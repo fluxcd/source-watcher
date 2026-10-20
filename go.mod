@@ -14,7 +14,7 @@ require (
 	github.com/fluxcd/pkg/apis/meta v1.35.0
 	github.com/fluxcd/pkg/artifact v0.24.0
 	github.com/fluxcd/pkg/http/fetch v0.28.0
-	github.com/fluxcd/pkg/runtime v0.119.0
+	github.com/fluxcd/pkg/runtime v0.120.1-0.20261020004141-1a5208cdf6bd
 	github.com/fluxcd/pkg/tar v1.3.0
 	github.com/fluxcd/pkg/testserver v0.15.0
 	github.com/fluxcd/source-controller/api v1.9.5
@@ -131,3 +131,5 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
+
+exclude github.com/fluxcd/pkg/apis/meta v1.36.0

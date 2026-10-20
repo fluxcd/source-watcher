@@ -29,10 +29,12 @@ var features = map[string]bool{
 	controller.FeatureGateDirectSourceFetch: false,
 }
 
+var retiredFeatures = map[string]string{}
+
 // FeatureGates contains a list of all supported feature gates and
 // their default values.
-func FeatureGates() map[string]bool {
-	return features
+func FeatureGates() (map[string]bool, map[string]string) {
+	return features, retiredFeatures
 }
 
 // Enabled verifies whether the feature is enabled or not.
