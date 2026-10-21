@@ -19,9 +19,11 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -319,6 +321,50 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "templated artifact namespace without pathPattern",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-templated-artifact-namespace-no-pattern",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = "{env}"
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "artifact namespace exceeding max length",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-long-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.OutputArtifacts[0].Namespace = strings.Repeat("a", 64)
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "templated artifact namespace with pathPattern",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-templated-artifact-namespace",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				alias := obj.Spec.Sources[0].Alias
+				obj.Spec.PathPattern = "@" + alias + "/apps/{app}/envs/{env}"
+				obj.Spec.OutputArtifacts[0].Name = "{app}-{env}"
+				obj.Spec.OutputArtifacts[0].Namespace = "{env}"
+				obj.Spec.OutputArtifacts[0].Copy[0].From = "@" + alias + "/apps/{app}/envs/{env}/**"
+				obj.Spec.OutputArtifacts[0].Copy[0].To = "@artifact/"
+				return obj
+			},
+			expectError: false,
+		},
+		{
 			name: "valid service account name",
 			setupObj: func() *swapi.ArtifactGenerator {
 				objKey := client.ObjectKey{
@@ -344,6 +390,156 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name: "valid managed namespaces",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-valid-managed-namespaces",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{"ns.startsWith('test-')"},
+				}
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "managed namespaces without allowed expressions",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-no-allowed-exprs",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune: true,
+				}
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "managed namespaces with empty allowed expressions",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-empty-allowed-exprs",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{},
+				}
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "managed namespaces with empty metadata",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-empty-metadata",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{"true"},
+					Metadata:     &swapi.ManagedNamespacesMetadata{},
+				}
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "managed namespaces with fromSource metadata",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-fromsource-metadata",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{"true"},
+					Metadata: &swapi.ManagedNamespacesMetadata{
+						FromSource: &swapi.NamespaceMetadataFromSource{
+							Path:          "@repo/tenants/{tenant}/metadata.yaml",
+							AllowedLabels: map[string]string{"observability": "value.matches('.*')"},
+						},
+					},
+				}
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "managed namespaces with from metadata",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-from-metadata",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{"true"},
+					Metadata: &swapi.ManagedNamespacesMetadata{
+						From: []swapi.NamespaceMetadataFrom{
+							{Strategy: swapi.OverrideStrategy, Namespace: "*", Labels: map[string]string{"team": "platform"}},
+						},
+					},
+				}
+				return obj
+			},
+			expectError: false,
+		},
+		{
+			name: "managed namespaces with fromSource metadata and no allowed keys",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-fromsource-no-allowed",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{"true"},
+					Metadata: &swapi.ManagedNamespacesMetadata{
+						FromSource: &swapi.NamespaceMetadataFromSource{
+							Path: "@repo/tenants/{tenant}/metadata.yaml",
+						},
+					},
+				}
+				return obj
+			},
+			expectError: true,
+		},
+		{
+			name: "managed namespaces with fromSource metadata and allowed annotations",
+			setupObj: func() *swapi.ArtifactGenerator {
+				objKey := client.ObjectKey{
+					Name:      "test-managed-fromsource-allowed-annotations",
+					Namespace: ns.Name,
+				}
+				obj := getArtifactGenerator(objKey)
+				obj.Spec.ManagedNamespaces = &swapi.ManagedNamespaces{
+					Prune:        true,
+					AllowedNames: []string{"true"},
+					Metadata: &swapi.ManagedNamespacesMetadata{
+						FromSource: &swapi.NamespaceMetadataFromSource{
+							Path:               "@repo/tenants/{tenant}/metadata.yaml",
+							AllowedAnnotations: map[string]string{"team": "value.matches('.*')"},
+						},
+					},
+				}
+				return obj
+			},
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -360,6 +556,83 @@ func TestArtifactGenerator_crdValidation(t *testing.T) {
 				defer func() {
 					_ = testEnv.Delete(ctx, obj)
 				}()
+			}
+		})
+	}
+}
+
+// TestArtifactGenerator_crdValidation_ManagedNamespacesRequired verifies that
+// the CRD requires allowedNames and prune when managedNamespaces is set. The
+// typed client always serializes the boolean prune field, so unstructured
+// objects are used to omit it.
+func TestArtifactGenerator_crdValidation_ManagedNamespacesRequired(t *testing.T) {
+	g := NewWithT(t)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ns, err := testEnv.CreateNamespace(ctx, "test-crd-managed-required")
+	g.Expect(err).ToNot(HaveOccurred())
+
+	spec := func(managed map[string]any) map[string]any {
+		return map[string]any{
+			"managedNamespaces": managed,
+			"sources": []any{
+				map[string]any{"alias": "git", "kind": "GitRepository", "name": "git"},
+			},
+			"artifacts": []any{
+				map[string]any{
+					"name": "app",
+					"copy": []any{map[string]any{"from": "@git/**", "to": "@artifact/"}},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		managed     map[string]any
+		errContains string
+	}{
+		{
+			name:        "missing prune",
+			managed:     map[string]any{"allowedNames": []any{"true"}},
+			errContains: "prune",
+		},
+		{
+			name:        "missing allowed expressions",
+			managed:     map[string]any{"prune": true},
+			errContains: "allowedNames",
+		},
+		{
+			name:        "empty allowed expressions",
+			managed:     map[string]any{"prune": true, "allowedNames": []any{}},
+			errContains: "allowedNames",
+		},
+		{
+			name:    "all required fields",
+			managed: map[string]any{"prune": true, "allowedNames": []any{"true"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			u := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": swapi.GroupVersion.String(),
+				"kind":       swapi.ArtifactGeneratorKind,
+				"metadata": map[string]any{
+					"name":      "test-managed-required-" + strings.ReplaceAll(tt.name, " ", "-"),
+					"namespace": ns.Name,
+				},
+				"spec": spec(tt.managed),
+			}}
+
+			err := testEnv.Create(ctx, u)
+			if tt.errContains != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tt.errContains))
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
+				defer func() { _ = testEnv.Delete(ctx, u) }()
 			}
 		})
 	}

@@ -32,6 +32,9 @@ import (
 type artifactRequest struct {
 	swapi.OutputArtifact
 	Labels map[string]string
+	// Captures holds the raw path pattern capture values, used to render
+	// source paths such as inputsFrom and namespace metadata sources.
+	Captures map[string]string
 }
 
 var pathPatternCaptureNameRe = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_]*$")
@@ -109,8 +112,14 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 	}
 
 	var reqs []artifactRequest
-	// Track rendered artifact names to detect collisions after lowercasing.
-	seenNames := make(map[string]string)
+	// Track rendered artifacts to detect collisions after lowercasing.
+	// Artifacts are uniquely identified by namespace and name, so the same
+	// name may be reused in different namespaces.
+	type artifactKey struct {
+		namespace string
+		name      string
+	}
+	seenArtifacts := make(map[artifactKey]string)
 
 	err = filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -172,13 +181,23 @@ func buildArtifactRequests(obj *swapi.ArtifactGenerator, localSources map[string
 					obj.Spec.PathPattern, req.Name, strings.Join(errs, "; "))
 			}
 
-			// Validate for duplicate names.
-			if prevDir, exists := seenNames[req.Name]; exists {
-				return newTerminalPathPatternError(
-					"pathPattern %q: directories %q and %q both resolve to artifact name %q",
-					obj.Spec.PathPattern, prevDir, rel, req.Name)
+			// Validate the rendered EA namespace with ValidateNamespaceName.
+			if req.Namespace != "" {
+				if errs := apivalidation.ValidateNamespaceName(req.Namespace, false); len(errs) > 0 {
+					return newTerminalPathPatternError(
+						"pathPattern %q: rendered artifact namespace %q is not a valid Kubernetes namespace: %s",
+						obj.Spec.PathPattern, req.Namespace, strings.Join(errs, "; "))
+				}
 			}
-			seenNames[req.Name] = rel
+
+			// Validate for duplicate names within the same namespace.
+			key := artifactKey{namespace: obj.GetArtifactNamespace(&req.OutputArtifact), name: req.Name}
+			if prevDir, exists := seenArtifacts[key]; exists {
+				return newTerminalPathPatternError(
+					"pathPattern %q: directories %q and %q both resolve to artifact name %q in namespace %q",
+					obj.Spec.PathPattern, prevDir, rel, req.Name, key.namespace)
+			}
+			seenArtifacts[key] = rel
 
 			reqs = append(reqs, req)
 		}
@@ -226,9 +245,15 @@ func validatePathPatternCaptures(pathPattern, patternStr string) error {
 }
 
 // renderArtifactRequest creates an artifactRequest by substituting capture placeholders.
-// Artifact names and labels use normalized captures, while copy paths use raw captures.
+// Artifact names, namespaces, and labels use normalized captures, while copy paths
+// use raw captures.
 func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptures map[string]string) (artifactRequest, error) {
 	name, err := renderTemplateString(oa.Name, normalizedCaptures)
+	if err != nil {
+		return artifactRequest{}, err
+	}
+
+	namespace, err := renderTemplateString(oa.Namespace, normalizedCaptures)
 	if err != nil {
 		return artifactRequest{}, err
 	}
@@ -236,8 +261,19 @@ func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptu
 	req := artifactRequest{
 		OutputArtifact: oa,
 		Labels:         normalizedCaptures,
+		Captures:       rawCaptures,
 	}
 	req.Name = name
+	req.Namespace = namespace
+
+	// Substitute capture placeholders in the inputs source path.
+	if oa.InputsFrom != "" {
+		inputsFrom, err := renderTemplateString(oa.InputsFrom, rawCaptures)
+		if err != nil {
+			return artifactRequest{}, err
+		}
+		req.InputsFrom = inputsFrom
+	}
 
 	// Deep copy the Copy slice to avoid mutating the original OutputArtifact spec,
 	// and substitute capture placeholders in each copy operation.
@@ -253,12 +289,9 @@ func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptu
 			return artifactRequest{}, err
 		}
 
-		req.Copy[i] = swapi.CopyOperation{
-			From:     from,
-			To:       to,
-			Exclude:  copyOp.Exclude,
-			Strategy: copyOp.Strategy,
-		}
+		req.Copy[i] = copyOp
+		req.Copy[i].From = from
+		req.Copy[i].To = to
 	}
 
 	return req, nil
