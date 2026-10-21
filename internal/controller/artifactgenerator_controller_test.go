@@ -1098,97 +1098,20 @@ func TestArtifactGeneratorReconciler_PathPattern(t *testing.T) {
 	})
 }
 
-func TestArtifactGeneratorReconciler_needsImpersonation(t *testing.T) {
-	tests := []struct {
-		name                  string
-		defaultServiceAccount string
-		serviceAccountName    string
-		managedNamespaces     *swapi.ManagedNamespaces
-		artifacts             []swapi.OutputArtifact
-		inventory             []swapi.InventoryEntry
-		want                  bool
-	}{
-		{
-			name:      "no service account configured",
-			artifacts: []swapi.OutputArtifact{{Name: "app", Namespace: "other"}},
-			want:      false,
-		},
-		{
-			name:               "explicit service account, in-namespace artifact",
-			serviceAccountName: "sa",
-			artifacts:          []swapi.OutputArtifact{{Name: "app"}},
-			want:               true,
-		},
-		{
-			name:               "explicit service account, cross-namespace artifact",
-			serviceAccountName: "sa",
-			artifacts:          []swapi.OutputArtifact{{Name: "app", Namespace: "other"}},
-			want:               true,
-		},
-		{
-			name:               "explicit service account, managed namespaces without external targets",
-			serviceAccountName: "sa",
-			managedNamespaces:  &swapi.ManagedNamespaces{Prune: true, AllowedNames: []string{"true"}},
-			artifacts:          []swapi.OutputArtifact{{Name: "app"}},
-			want:               true,
-		},
-		{
-			name:                  "default service account, in-namespace artifact",
-			defaultServiceAccount: "default-sa",
-			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
-			want:                  false,
-		},
-		{
-			name:                  "default service account, cross-namespace artifact",
-			defaultServiceAccount: "default-sa",
-			artifacts:             []swapi.OutputArtifact{{Name: "app", Namespace: "other"}},
-			want:                  true,
-		},
-		{
-			name:                  "default service account, managed namespaces without external targets",
-			defaultServiceAccount: "default-sa",
-			managedNamespaces:     &swapi.ManagedNamespaces{Prune: true, AllowedNames: []string{"true"}},
-			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
-			want:                  true,
-		},
-		{
-			name:                  "default service account, managed namespaces tracked in inventory",
-			defaultServiceAccount: "default-sa",
-			managedNamespaces:     &swapi.ManagedNamespaces{Prune: true, AllowedNames: []string{"true"}},
-			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
-			inventory:             []swapi.InventoryEntry{{Kind: swapi.NamespaceKind, Name: "other"}},
-			want:                  true,
-		},
-		{
-			name:                  "default service account, no managed namespaces with namespace inventory",
-			defaultServiceAccount: "default-sa",
-			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
-			inventory:             []swapi.InventoryEntry{{Kind: swapi.NamespaceKind, Name: "other"}},
-			want:                  false,
-		},
-		{
-			name:                  "default service account, cross-namespace artifact tracked in inventory",
-			defaultServiceAccount: "default-sa",
-			artifacts:             []swapi.OutputArtifact{{Name: "app"}},
-			inventory:             []swapi.InventoryEntry{{Name: "app", Namespace: "other"}},
-			want:                  true,
-		},
-	}
+func TestAccessCheckerServiceAccountSelection(t *testing.T) {
+	g := NewWithT(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-			r := &ArtifactGeneratorReconciler{DefaultServiceAccount: tt.defaultServiceAccount}
-			obj := &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
-				Spec: swapi.ArtifactGeneratorSpec{
-					ServiceAccountName: tt.serviceAccountName,
-					ManagedNamespaces:  tt.managedNamespaces,
-					OutputArtifacts:    tt.artifacts,
-				},
-				Status: swapi.ArtifactGeneratorStatus{Inventory: tt.inventory},
-			}
-			g.Expect(r.needsImpersonation(obj)).To(Equal(tt.want))
-		})
+	obj := &swapi.ArtifactGenerator{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
 	}
+	checker := newAccessChecker(nil, obj, "default-sa")
+
+	g.Expect(checker.serviceAccountForNamespaces()).To(Equal("default-sa"))
+	g.Expect(checker.serviceAccountForExternalArtifacts("flux-system")).To(BeEmpty())
+	g.Expect(checker.serviceAccountForExternalArtifacts("tenant")).To(Equal("default-sa"))
+
+	obj.Spec.ServiceAccountName = "sa"
+	g.Expect(checker.serviceAccountForNamespaces()).To(Equal("sa"))
+	g.Expect(checker.serviceAccountForExternalArtifacts("flux-system")).To(Equal("sa"))
+	g.Expect(checker.serviceAccountForExternalArtifacts("tenant")).To(Equal("sa"))
 }

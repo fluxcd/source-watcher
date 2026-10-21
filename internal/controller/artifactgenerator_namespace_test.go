@@ -182,7 +182,7 @@ func TestArtifactGeneratorReconciler_CrossNamespace(t *testing.T) {
 	// The ServiceAccount lives in the ArtifactGenerator namespace and is
 	// granted access to the target namespace through a RoleBinding.
 	saName := "artifact-generator"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)
@@ -253,7 +253,7 @@ func TestArtifactGeneratorReconciler_CrossNamespacePathPattern(t *testing.T) {
 	// The ServiceAccount lives in the ArtifactGenerator namespace and is
 	// granted access to both target namespaces through RoleBindings.
 	saName := "artifact-generator-pp"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS1.Name, tgtNS2.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS1.Name, tgtNS2.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns-pp", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)
@@ -327,7 +327,7 @@ func TestArtifactGeneratorReconciler_DefaultServiceAccount(t *testing.T) {
 	// when the ArtifactGenerator does not specify one.
 	saName := "artifact-generator-default"
 	reconciler.DefaultServiceAccount = saName
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns-def", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)
@@ -376,7 +376,7 @@ func TestArtifactGeneratorReconciler_ServiceAccountSameNamespace(t *testing.T) {
 	// The ServiceAccount lives in the ArtifactGenerator namespace and is
 	// granted access to it.
 	saName := "test-agns-same-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns-same", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)
@@ -468,11 +468,13 @@ func TestArtifactGeneratorReconciler_ServiceAccountSameNamespaceDenied(t *testin
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// The apply is rejected by RBAC, so the reconciliation must fail and no
-	// ExternalArtifact may be created.
+	// The ServiceAccount is not allowed to apply ExternalArtifacts, so the
+	// reconciliation must fail and no ExternalArtifact may be created.
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(apierrors.IsForbidden(err)).To(BeTrue())
+	g.Expect(err.Error()).To(ContainSubstring("is not allowed to"))
+	var denied *accessDeniedError
+	g.Expect(errors.As(err, &denied)).To(BeTrue())
 
 	eaKey := client.ObjectKey{Name: fmt.Sprintf("%s-git", objKey.Name), Namespace: srcNS.Name}
 	err = testClient.Get(ctx, eaKey, &sourcev1.ExternalArtifact{})
@@ -486,9 +488,9 @@ func TestArtifactGeneratorReconciler_ServiceAccountSameNamespaceDenied(t *testin
 func TestArtifactGeneratorReconciler_DefaultServiceAccountSameNamespace(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
-	// The default ServiceAccount does not exist, so any attempt to impersonate
-	// it would make the reconciliation fail. In-namespace artifacts must not
-	// use it.
+	// The default ServiceAccount does not exist, so any attempt to authorize
+	// with it would make the reconciliation fail. In-namespace artifacts must
+	// not use it.
 	reconciler.DefaultServiceAccount = "missing-default-sa"
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -531,14 +533,14 @@ func TestArtifactGeneratorReconciler_DefaultServiceAccountSameNamespace(t *testi
 // TestArtifactGeneratorReconciler_ManagedNamespacesDefaultServiceAccountNoTargets
 // verifies that enabling namespace management with the default ServiceAccount
 // reconciles successfully even when no artifact targets another namespace, i.e.
-// when there is no managed namespace yet. Namespace management always uses an
-// impersonated client, so the client must be built regardless of the targets.
+// when there is no managed namespace yet. Namespace management only performs
+// SubjectAccessReview checks when there are namespaces to reconcile.
 func TestArtifactGeneratorReconciler_ManagedNamespacesDefaultServiceAccountNoTargets(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
-	// The default ServiceAccount is only impersonated, never used to build the
-	// client against the API server, so it does not need to exist as long as no
-	// managed namespace is reconciled.
+	// The default ServiceAccount is only used to authorize managed namespaces,
+	// so it does not need to exist as long as no managed namespace is
+	// reconciled.
 	reconciler.DefaultServiceAccount = "missing-default-sa"
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -591,7 +593,7 @@ func TestArtifactGeneratorReconciler_OwnershipConflict(t *testing.T) {
 	// The ServiceAccount lives in the ArtifactGenerator namespace and is
 	// granted access to the target namespace through a RoleBinding.
 	saName := "artifact-generator-owner"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns-owner", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)
@@ -732,11 +734,13 @@ func TestArtifactGeneratorReconciler_CrossNamespaceAccessDenied(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// The apply is rejected by RBAC, so the reconciliation must fail and no
-	// ExternalArtifact may be created.
+	// The ServiceAccount is not allowed to apply ExternalArtifacts, so the
+	// reconciliation must fail and no ExternalArtifact may be created.
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(apierrors.IsForbidden(err)).To(BeTrue())
+	g.Expect(err.Error()).To(ContainSubstring("is not allowed to"))
+	var denied *accessDeniedError
+	g.Expect(errors.As(err, &denied)).To(BeTrue())
 
 	eaKey := client.ObjectKey{Name: fmt.Sprintf("%s-git", objKey.Name), Namespace: tgtNS.Name}
 	err = testClient.Get(ctx, eaKey, &sourcev1.ExternalArtifact{})
@@ -755,7 +759,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespaces(t *testing.T) {
 	tgtName := fmt.Sprintf("test-mns-tgt-%s", rand.String(5))
 
 	saName := "test-mns-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns", Namespace: srcNS.Name}
@@ -861,7 +865,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesMetadata(t *testing.T) {
 	tgtName := fmt.Sprintf("test-mns-meta-tgt-%s", rand.String(5))
 
 	saName := "test-mns-meta-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-meta", Namespace: srcNS.Name}
@@ -939,7 +943,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesAdopt(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-mns-adopt-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-adopt", Namespace: srcNS.Name}
@@ -1006,7 +1010,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesTakeover(t *testing.T) {
 	tgtName := fmt.Sprintf("test-mns-take-tgt-%s", rand.String(5))
 
 	saName := "test-mns-take-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	// Pre-create the namespace owned by another ArtifactGenerator.
@@ -1071,7 +1075,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesNoPrune(t *testing.T) {
 	tgtName := fmt.Sprintf("test-mns-noprune-tgt-%s", rand.String(5))
 
 	saName := "test-mns-noprune-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-noprune", Namespace: srcNS.Name}
@@ -1128,7 +1132,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesReconcileDisabled(t *testi
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-mns-disabled-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-disabled", Namespace: srcNS.Name}
@@ -1200,7 +1204,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesIgnore(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-mns-ignore-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	// The target namespace opts out of reconciliation in-cluster.
@@ -1265,7 +1269,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesPruneDisabled(t *testing.T
 	tgtName := fmt.Sprintf("test-mns-nodel-tgt-%s", rand.String(5))
 
 	saName := "test-mns-nodel-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-nodel", Namespace: srcNS.Name}
@@ -1327,7 +1331,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesIfNotPresent(t *testing.T)
 	newName := fmt.Sprintf("test-mns-inp-new-%s", rand.String(5))
 
 	saName := "test-mns-inp-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	// The existing namespace opts out of updates in-cluster.
@@ -1399,7 +1403,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesMerge(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-mns-merge-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	// Simulate metadata owned by another field manager and opt into merge.
@@ -1464,7 +1468,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesPathPattern(t *testing.T) 
 	tgt2 := fmt.Sprintf("test-mns-pp-b-%s", rand.String(5))
 
 	saName := "test-mns-pp-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-pp", Namespace: srcNS.Name}
@@ -1528,7 +1532,7 @@ func expectNamespaceDeleted(g Gomega, ctx context.Context, name string) {
 	}
 }
 
-func TestArtifactGeneratorReconciler_ManagedNamespacesImpersonation(t *testing.T) {
+func TestArtifactGeneratorReconciler_ManagedNamespacesAuthorization(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -1542,7 +1546,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesImpersonation(t *testing.T
 	// The ServiceAccount manages ExternalArtifacts in the target namespace and
 	// namespaces at cluster scope.
 	saName := "test-mns-imp-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-imp", Namespace: srcNS.Name}
@@ -1599,7 +1603,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesPruneRetry(t *testing.T) {
 	// The ServiceAccount can manage ExternalArtifacts and namespaces, but
 	// cannot delete namespaces.
 	saName := "test-mns-retry-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name, "get", "list", "watch", "create", "update", "patch")).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-retry", Namespace: srcNS.Name}
@@ -1657,11 +1661,11 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesPruneRetry(t *testing.T) {
 	expectNamespaceDeleted(g, ctx, tgtNS.Name)
 }
 
-// TestArtifactGeneratorReconciler_FinalizeImpersonationMissing verifies that
+// TestArtifactGeneratorReconciler_FinalizeServiceAccountMissing verifies that
 // deleting an ArtifactGenerator whose ServiceAccount was removed does not block
 // the finalization: the controller logs the objects it cannot prune and removes
 // the finalizer, mirroring kustomize-controller.
-func TestArtifactGeneratorReconciler_FinalizeImpersonationMissing(t *testing.T) {
+func TestArtifactGeneratorReconciler_FinalizeServiceAccountMissing(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -1673,7 +1677,7 @@ func TestArtifactGeneratorReconciler_FinalizeImpersonationMissing(t *testing.T) 
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-mns-gone-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-gone", Namespace: srcNS.Name}
@@ -1743,13 +1747,6 @@ func grantNamespaceManagement(ctx context.Context, saName, saNamespace string, v
 				Verbs:     verbs,
 			},
 			{
-				// The external finalizer handoff reads the referenced object
-				// with the impersonated client.
-				APIGroups: []string{""},
-				Resources: []string{"configmaps"},
-				Verbs:     []string{"get"},
-			},
-			{
 				APIGroups: []string{sourcev1.GroupVersion.Group},
 				Resources: []string{"externalartifacts"},
 				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},
@@ -1783,9 +1780,9 @@ func grantNamespaceManagement(ctx context.Context, saName, saNamespace string, v
 	return testClient.Create(ctx, binding)
 }
 
-// createImpersonationRBAC creates a ServiceAccount in saNamespace and grants
+// createServiceAccountRBAC creates a ServiceAccount in saNamespace and grants
 // it permission to manage ExternalArtifacts in the given target namespaces.
-func createImpersonationRBAC(ctx context.Context, saName, saNamespace string, targetNamespaces ...string) error {
+func createServiceAccountRBAC(ctx context.Context, saName, saNamespace string, targetNamespaces ...string) error {
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      saName,
@@ -1797,16 +1794,16 @@ func createImpersonationRBAC(ctx context.Context, saName, saNamespace string, ta
 	}
 
 	for _, targetNamespace := range targetNamespaces {
-		if err := grantImpersonationInNamespace(ctx, saName, saNamespace, targetNamespace); err != nil {
+		if err := grantExternalArtifactAccessInNamespace(ctx, saName, saNamespace, targetNamespace); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// grantImpersonationInNamespace grants an existing ServiceAccount permission
-// to manage ExternalArtifacts in the target namespace.
-func grantImpersonationInNamespace(ctx context.Context, saName, saNamespace, targetNamespace string) error {
+// grantExternalArtifactAccessInNamespace grants an existing ServiceAccount
+// permission to manage ExternalArtifacts in the target namespace.
+func grantExternalArtifactAccessInNamespace(ctx context.Context, saName, saNamespace, targetNamespace string) error {
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      saName,
@@ -2099,7 +2096,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesNotAllowed(t *testing.T) {
 	tgtName := fmt.Sprintf("test-mns-notallowed-tgt-%s", rand.String(5))
 
 	saName := "test-mns-notallowed-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-notallowed", Namespace: srcNS.Name}
@@ -2150,7 +2147,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesDenied(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-mns-denied-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-denied", Namespace: srcNS.Name}
@@ -2202,7 +2199,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesMetadataRejected(t *testin
 	tgtName := fmt.Sprintf("test-mns-rejected-tgt-%s", rand.String(5))
 
 	saName := "test-mns-rejected-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-rejected", Namespace: srcNS.Name}
@@ -2273,7 +2270,7 @@ func TestArtifactGeneratorReconciler_ExternalArtifactAdopted(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	saName := "test-ea-adopt-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name, tgtNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-ea-adopt", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)

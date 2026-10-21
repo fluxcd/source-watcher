@@ -118,6 +118,7 @@ func TestArtifactGeneratorReconciler_FinalizeReferencesSurvivors(t *testing.T) {
 	obj := &swapi.ArtifactGenerator{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "src", UID: "uid"},
 		Spec: swapi.ArtifactGeneratorSpec{
+			ServiceAccountName: "sa",
 			ManagedNamespaces: &swapi.ManagedNamespaces{
 				Prune:        true,
 				AllowedNames: []string{"true"},
@@ -134,19 +135,19 @@ func TestArtifactGeneratorReconciler_FinalizeReferencesSurvivors(t *testing.T) {
 	}
 
 	// Both entries are survivors when their deletion is not confirmed.
-	survivors := reconciler.finalizeReferences(ctx, obj, []swapi.InventoryEntry{artifact, namespace}, kubeClient)
+	survivors := reconciler.finalizeReferences(ctx, obj, []swapi.InventoryEntry{artifact, namespace}, newAllowAllAccessChecker(obj))
 	g.Expect(survivors).To(ConsistOf(artifact, namespace))
 
 	// Namespaces are not survivors when management is disabled.
 	unmanaged := obj.DeepCopy()
 	unmanaged.Spec.ManagedNamespaces = nil
-	survivors = reconciler.finalizeReferences(ctx, unmanaged, []swapi.InventoryEntry{namespace}, kubeClient)
+	survivors = reconciler.finalizeReferences(ctx, unmanaged, []swapi.InventoryEntry{namespace}, newAllowAllAccessChecker(unmanaged))
 	g.Expect(survivors).To(BeEmpty())
 
 	// Namespaces are not deleted when pruning is disabled.
 	noPrune := obj.DeepCopy()
 	noPrune.Spec.ManagedNamespaces.Prune = false
-	survivors = reconciler.finalizeReferences(ctx, noPrune, []swapi.InventoryEntry{namespace}, kubeClient)
+	survivors = reconciler.finalizeReferences(ctx, noPrune, []swapi.InventoryEntry{namespace}, newAllowAllAccessChecker(noPrune))
 	g.Expect(survivors).To(BeEmpty())
 }
 

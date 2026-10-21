@@ -48,7 +48,7 @@ import (
 func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	currentSourcesDigest string,
-	impersonated client.Client) (bool, string) {
+	auth *accessChecker) (bool, string) {
 	// Setup logger on debug level.
 	log := ctrl.LoggerFrom(ctx).V(1)
 
@@ -121,7 +121,7 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		}
 	}
 
-	eaDrift, err := r.detectExternalArtifactsDrift(ctx, obj, impersonated)
+	eaDrift, err := r.detectExternalArtifactsDrift(ctx, obj, auth)
 	if err != nil {
 		log.Error(err, "Failed to verify in-cluster external artifacts for drift")
 		return true, "ExternalArtifactsNotFound"
@@ -131,7 +131,7 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 		return true, "ExternalArtifactsChanged"
 	}
 
-	nsDrift, err := r.detectNamespacesDrift(ctx, obj, impersonated)
+	nsDrift, err := r.detectNamespacesDrift(ctx, obj, auth)
 	if err != nil {
 		log.Error(err, "Failed to verify managed namespaces for drift")
 		return true, "NamespacesNotFound"
@@ -148,7 +148,7 @@ func (r *ArtifactGeneratorReconciler) detectDrift(ctx context.Context,
 // managed by the ArtifactGenerator have been modified or deleted.
 func (r *ArtifactGeneratorReconciler) detectExternalArtifactsDrift(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	impersonated client.Client) (bool, error) {
+	auth *accessChecker) (bool, error) {
 
 	// Group the artifact inventory references by namespace, as the generated
 	// ExternalArtifacts may live in namespaces other than the one of
@@ -166,11 +166,12 @@ func (r *ArtifactGeneratorReconciler) detectExternalArtifactsDrift(ctx context.C
 	// Check if the number of ExternalArtifacts in the cluster matches the inventory.
 	total := 0
 	for namespace := range namespaces {
-		// Select the client based on the namespace of the ExternalArtifacts.
-		kubeClient := r.clientForNamespace(obj, impersonated, namespace)
+		if err := auth.ensureExternalArtifactVerb(ctx, namespace, "list", ""); err != nil {
+			return true, err
+		}
 
 		eaList := &sourcev1.ExternalArtifactList{}
-		if err := kubeClient.List(ctx, eaList, client.InNamespace(namespace),
+		if err := r.reader().List(ctx, eaList, client.InNamespace(namespace),
 			client.MatchingLabels{
 				swapi.ArtifactGeneratorLabel: string(obj.GetUID()),
 			}); err != nil {

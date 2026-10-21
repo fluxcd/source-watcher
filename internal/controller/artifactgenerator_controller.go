@@ -41,7 +41,6 @@ import (
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
 	gotkstroage "github.com/fluxcd/pkg/artifact/storage"
 	gotkfetch "github.com/fluxcd/pkg/http/fetch"
-	gotkclient "github.com/fluxcd/pkg/runtime/client"
 	gotkconditions "github.com/fluxcd/pkg/runtime/conditions"
 	gotkevents "github.com/fluxcd/pkg/runtime/events"
 	gotkjitter "github.com/fluxcd/pkg/runtime/jitter"
@@ -97,34 +96,30 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}()
 
-	// Finalize the reconciliation and release resources if the object is being
-	// deleted. Finalization builds its own impersonation client, so a missing
-	// ServiceAccount does not block the deletion of the ArtifactGenerator.
-	if !obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.finalize(ctx, obj)
-	}
-
-	// Build the impersonation client only when there is work that requires it:
-	// an explicit .spec.serviceAccountName, an ExternalArtifact targeting a
-	// namespace other than the ArtifactGenerator namespace, or a managed
-	// namespace tracked in the inventory.
-	var impersonated client.Client
-	if r.needsImpersonation(obj) {
-		var err error
-		impersonated, err = r.newImpersonatedClient(ctx, obj)
-		if err != nil {
-			err = fmt.Errorf("failed to build the impersonation client: %w", err)
+	// Surface access denials from the SubjectAccessReview checks. These errors
+	// are retryable, as the RBAC bindings may be fixed without changing the
+	// ArtifactGenerator.
+	defer func() {
+		var accessErr *accessDeniedError
+		if errors.As(retErr, &accessErr) {
 			gotkconditions.MarkFalse(obj,
 				gotkmeta.ReadyCondition,
 				swapi.AccessDeniedReason,
-				"%s", err.Error())
-			r.Eventf(obj, nil, corev1.EventTypeWarning, swapi.AccessDeniedReason, swapi.ActionPublish.String(), "%s", err.Error())
-			return ctrl.Result{}, err
+				"%s", accessErr.Error())
+			r.Eventf(obj, nil, corev1.EventTypeWarning,
+				swapi.AccessDeniedReason, swapi.ActionPublish.String(), "%s", accessErr.Error())
 		}
+	}()
+
+	// Finalize the reconciliation and release resources if the object is being
+	// deleted. Finalization checks each scope with SubjectAccessReview and uses
+	// the controller credentials to prune the managed objects.
+	if !obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		auth := newAccessChecker(r.Client, obj, r.DefaultServiceAccount)
+		return r.finalize(ctx, obj, auth)
 	}
 
-	// Namespace management is always performed with an impersonated
-	// ServiceAccount and never with the controller client, so the
+	// Namespace management is always authorized by a ServiceAccount, so the
 	// ArtifactGenerator must configure one.
 	if obj.ManagesNamespaces() && obj.Spec.ServiceAccountName == "" && r.DefaultServiceAccount == "" {
 		return ctrl.Result{}, r.newTerminalErrorFor(obj,
@@ -158,41 +153,22 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Run drift detection and reconciliation.
-	return r.reconcile(ctx, obj, patcher, impersonated, policies)
+	auth := newAccessChecker(r.Client, obj, r.DefaultServiceAccount)
+	return r.reconcile(ctx, obj, patcher, auth, policies)
 }
 
-// needsImpersonation returns true when the controller must impersonate a
-// ServiceAccount to reconcile the ArtifactGenerator. An explicit
-// .spec.serviceAccountName is authoritative for every generated
-// ExternalArtifact, including those in the ArtifactGenerator namespace, so it
-// always requires impersonation. Namespace management always uses an
-// impersonated ServiceAccount, so it requires impersonation as soon as it is
-// enabled. The --default-service-account flag is otherwise only used for
-// ExternalArtifacts targeting another namespace, so it requires impersonation
-// only when there is such work.
-func (r *ArtifactGeneratorReconciler) needsImpersonation(obj *swapi.ArtifactGenerator) bool {
-	if r.DefaultServiceAccount == "" && obj.Spec.ServiceAccountName == "" {
-		return false
-	}
-
-	// An explicit ServiceAccount applies to every generated ExternalArtifact,
-	// including those in the ArtifactGenerator namespace.
+// needsServiceAccount returns true when finalization must use a ServiceAccount
+// to authorize the pruning of managed objects.
+func (r *ArtifactGeneratorReconciler) needsServiceAccount(obj *swapi.ArtifactGenerator) bool {
 	if obj.Spec.ServiceAccountName != "" {
 		return true
 	}
-
-	// Namespace management always uses an impersonated ServiceAccount, never
-	// the controller credentials, even when there is no managed namespace yet.
+	if r.DefaultServiceAccount == "" {
+		return false
+	}
 	if obj.ManagesNamespaces() {
 		return true
 	}
-
-	for i := range obj.Spec.OutputArtifacts {
-		if obj.GetArtifactNamespace(&obj.Spec.OutputArtifacts[i]) != obj.Namespace {
-			return true
-		}
-	}
-
 	for _, ref := range obj.Status.Inventory {
 		if ref.Kind == swapi.NamespaceKind {
 			continue
@@ -201,47 +177,35 @@ func (r *ArtifactGeneratorReconciler) needsImpersonation(obj *swapi.ArtifactGene
 			return true
 		}
 	}
-
 	return false
 }
 
-// newImpersonatedClient returns a client that impersonates the ServiceAccount
-// configured on the ArtifactGenerator, or the one from the
-// --default-service-account flag when the object does not specify one.
-func (r *ArtifactGeneratorReconciler) newImpersonatedClient(ctx context.Context,
-	obj *swapi.ArtifactGenerator) (client.Client, error) {
-	impersonator := gotkclient.NewImpersonator(r.Client,
-		gotkclient.WithScheme(r.Scheme),
-		gotkclient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.Namespace))
-	kubeClient, _, err := impersonator.GetClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return kubeClient, nil
-}
-
-// canImpersonate returns true when the ServiceAccount configured on the
+// serviceAccountExists returns true when the ServiceAccount configured on the
 // ArtifactGenerator, or the one from the --default-service-account flag, exists
 // in the cluster. It is used during finalization to detect a ServiceAccount
 // that was deleted before the ArtifactGenerator, so that the finalization can
 // proceed instead of being blocked indefinitely.
-func (r *ArtifactGeneratorReconciler) canImpersonate(ctx context.Context,
+func (r *ArtifactGeneratorReconciler) serviceAccountExists(ctx context.Context,
 	obj *swapi.ArtifactGenerator) bool {
-	impersonator := gotkclient.NewImpersonator(r.Client,
-		gotkclient.WithScheme(r.Scheme),
-		gotkclient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.Namespace))
-	return impersonator.CanImpersonate(ctx)
+	name := r.DefaultServiceAccount
+	if obj.Spec.ServiceAccountName != "" {
+		name = obj.Spec.ServiceAccountName
+	}
+	if name == "" {
+		return true
+	}
+	sa := &corev1.ServiceAccount{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: obj.Namespace}, sa); err != nil {
+		return false
+	}
+	return true
 }
 
-// clientForNamespace returns the client that must be used to reconcile
-// ExternalArtifacts in the given namespace. The impersonated client is used
-// when an explicit .spec.serviceAccountName is set, or when the target
-// namespace differs from the ArtifactGenerator namespace; otherwise the
-// controller client is returned.
-func (r *ArtifactGeneratorReconciler) clientForNamespace(obj *swapi.ArtifactGenerator,
-	impersonated client.Client, namespace string) client.Client {
-	if impersonated != nil && (obj.Spec.ServiceAccountName != "" || namespace != obj.Namespace) {
-		return impersonated
+// reader returns the direct API reader when available, falling back to the
+// controller client.
+func (r *ArtifactGeneratorReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
 	}
 	return r.Client
 }
@@ -250,7 +214,7 @@ func (r *ArtifactGeneratorReconciler) clientForNamespace(obj *swapi.ArtifactGene
 func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	patcher *gotkpatch.SerialPatcher,
-	impersonated client.Client,
+	auth *accessChecker,
 	policies *namespacePolicies) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	oldObj := obj.DeepCopy()
@@ -287,7 +251,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// Detect drift between the actual state and the desired state.
 	// If no drift is detected in sources and the stored artifacts pass the
 	// integrity verification, the reconciliation is complete and we can exit early.
-	hasDrifted, reason := r.detectDrift(ctx, obj, observedSourcesDigest, impersonated)
+	hasDrifted, reason := r.detectDrift(ctx, obj, observedSourcesDigest, auth)
 	if !hasDrifted {
 		artifactCount, namespaceCount := 0, 0
 		for _, ref := range obj.Status.Inventory {
@@ -423,7 +387,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		}
 
 		var nsConflicts []namespaceConflict
-		nsRefs, nsConflicts, err = r.reconcileNamespaces(ctx, obj, reqs, localSources, tmpDir, impersonated, policies)
+		nsRefs, nsConflicts, err = r.reconcileNamespaces(ctx, obj, reqs, localSources, tmpDir, auth, policies)
 		if err != nil {
 			msg := fmt.Sprintf("namespace reconciliation failed: %s", err.Error())
 			// Namespace metadata errors can only be resolved by a change to
@@ -473,7 +437,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		// Reconcile the ExternalArtifact corresponding to the built artifact.
 		// The ExternalArtifact will reference the artifact stored in the storage backend.
 		// If the ExternalArtifact already exists, its status will be updated with the new artifact details.
-		eaRef, conflict, err := r.reconcileExternalArtifact(ctx, obj, &oa, b.artifact, b.req.Labels, b.exportedInputs, impersonated)
+		eaRef, conflict, err := r.reconcileExternalArtifact(ctx, obj, &oa, b.artifact, b.req.Labels, b.exportedInputs, auth)
 		if err != nil {
 			msg := fmt.Sprintf("%s reconcile failed: %s", oa.Name, err.Error())
 			gotkconditions.MarkFalse(obj,
@@ -546,7 +510,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 	// Objects whose deletion was not confirmed are kept in the inventory so
 	// the next reconciliation retries their deletion.
 	if orphans := r.findOrphanedReferences(obj.Status.Inventory, inventory); len(orphans) > 0 {
-		survivors := r.finalizeReferences(ctx, obj, orphans, impersonated)
+		survivors := r.finalizeReferences(ctx, obj, orphans, auth)
 		if len(survivors) > 0 {
 			inventory = append(inventory, survivors...)
 			obj.Status.Inventory = inventory
@@ -772,11 +736,13 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	artifact *gotkmeta.Artifact,
 	dynamicLabels map[string]string,
 	exportedInputs map[string]*apiextensionsv1.JSON,
-	impersonated client.Client) (*swapi.InventoryEntry, *ownershipConflict, error) {
+	auth *accessChecker) (*swapi.InventoryEntry, *ownershipConflict, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Select the client.
-	kubeClient := r.clientForNamespace(obj, impersonated, obj.GetArtifactNamespace(outputArtifact))
+	namespace := obj.GetArtifactNamespace(outputArtifact)
+	if err := auth.ensureExternalArtifactVerb(ctx, namespace, "get", ""); err != nil {
+		return nil, nil, err
+	}
 
 	// Prepare labels for the ExternalArtifact with the managed-by and generator labels.
 	labels := make(map[string]string)
@@ -818,14 +784,23 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 	}
 
 	// Detect ownership conflicts before applying the ExternalArtifact.
-	conflict, err := r.detectOwnershipConflict(ctx, obj, kubeClient, ea)
+	conflict, exists, err := r.detectOwnershipConflict(ctx, obj, ea)
 	if err != nil {
+		return nil, nil, err
+	}
+
+	if !exists {
+		if err := auth.ensureExternalArtifactVerb(ctx, namespace, "create", ""); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := auth.ensureExternalArtifactVerb(ctx, namespace, "patch", ""); err != nil {
 		return nil, nil, err
 	}
 
 	// Apply the ExternalArtifact object.
 	forceApply := true
-	if err := kubeClient.Patch(ctx, ea, client.Apply, &client.PatchOptions{
+	if err := r.Client.Patch(ctx, ea, client.Apply, &client.PatchOptions{
 		FieldManager: r.ControllerName,
 		Force:        &forceApply,
 	}); err != nil {
@@ -853,7 +828,10 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 			FieldManager: r.ControllerName,
 		},
 	}
-	if err := kubeClient.Status().Patch(ctx, ea, client.Apply, statusOpts); err != nil {
+	if err := auth.ensureExternalArtifactVerb(ctx, namespace, "patch", "status"); err != nil {
+		return nil, nil, err
+	}
+	if err := r.Client.Status().Patch(ctx, ea, client.Apply, statusOpts); err != nil {
 		return nil, nil, fmt.Errorf("failed to patchStatus ExternalArtifact status: %w", err)
 	}
 
@@ -902,20 +880,19 @@ type ownershipConflict struct {
 // ArtifactGenerator event.
 func (r *ArtifactGeneratorReconciler) detectOwnershipConflict(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	kubeClient client.Client,
-	ea *sourcev1.ExternalArtifact) (*ownershipConflict, error) {
+	ea *sourcev1.ExternalArtifact) (*ownershipConflict, bool, error) {
 	existing := &sourcev1.ExternalArtifact{}
-	err := kubeClient.Get(ctx, client.ObjectKeyFromObject(ea), existing)
+	err := r.reader().Get(ctx, client.ObjectKeyFromObject(ea), existing)
 	if apierrors.IsNotFound(err) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ExternalArtifact: %w", err)
+		return nil, false, fmt.Errorf("failed to get ExternalArtifact: %w", err)
 	}
 
 	owner := existing.Labels[swapi.ArtifactGeneratorLabel]
 	if owner == string(obj.GetUID()) {
-		return nil, nil
+		return nil, true, nil
 	}
 
 	change := &ownershipConflict{
@@ -926,7 +903,7 @@ func (r *ArtifactGeneratorReconciler) detectOwnershipConflict(ctx context.Contex
 		msg := fmt.Sprintf("ExternalArtifact %s is not managed by any ArtifactGenerator and is being adopted by %s/%s",
 			change.ExternalArtifact, obj.Namespace, obj.Name)
 		r.Eventf(existing, nil, corev1.EventTypeWarning, swapi.AdoptedReason, swapi.ActionPublish.String(), "%s", msg)
-		return change, nil
+		return change, true, nil
 	}
 
 	previous := owner
@@ -938,7 +915,7 @@ func (r *ArtifactGeneratorReconciler) detectOwnershipConflict(ctx context.Contex
 		change.ExternalArtifact, change.ArtifactGenerator, obj.Namespace, obj.Name)
 	r.Eventf(existing, nil, corev1.EventTypeWarning, swapi.OwnershipConflictReason, swapi.ActionPublish.String(), "%s", msg)
 
-	return change, nil
+	return change, true, nil
 }
 
 // findOrphanedReferences identifies references in the inventory that are not

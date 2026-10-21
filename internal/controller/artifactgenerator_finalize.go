@@ -26,7 +26,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	gotkmeta "github.com/fluxcd/pkg/apis/meta"
@@ -39,36 +38,29 @@ import (
 
 // finalize handles the finalization of the object during deletion.
 func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
-	obj *swapi.ArtifactGenerator) (ctrl.Result, error) {
+	obj *swapi.ArtifactGenerator,
+	auth *accessChecker) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Build the impersonation client used to delete the managed objects. When
-	// the ServiceAccount to impersonate is no longer available, the controller
-	// cannot delete the cross-namespace ExternalArtifacts and the managed
-	// namespaces. Rather than blocking the deletion of the ArtifactGenerator
-	// indefinitely, the controller logs the objects that cannot be pruned and
-	// proceeds with the finalization, mirroring kustomize-controller.
-	var impersonated client.Client
-	if r.needsImpersonation(obj) {
-		if !r.canImpersonate(ctx, obj) {
-			msg := "unable to prune managed objects, the ServiceAccount to impersonate is no longer available"
-			log.Error(fmt.Errorf("cannot impersonate, skipping pruning"), msg, "objects", obj.Status.Inventory)
-			r.Eventf(obj, nil, corev1.EventTypeWarning, swapi.AccessDeniedReason, swapi.ActionReconcile.String(), "%s", msg)
-			controllerutil.RemoveFinalizer(obj, swapi.Finalizer)
-			log.Info("Removed finalizer", "finalizer", swapi.Finalizer)
-			return ctrl.Result{}, nil
-		}
-		var err error
-		impersonated, err = r.newImpersonatedClient(ctx, obj)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to build the impersonation client: %w", err)
-		}
+	// When the ServiceAccount that authorizes the managed objects is no longer
+	// available, the controller cannot delete the cross-namespace
+	// ExternalArtifacts and the managed namespaces. Rather than blocking the
+	// deletion of the ArtifactGenerator indefinitely, the controller logs the
+	// objects that cannot be pruned and proceeds with the finalization,
+	// mirroring kustomize-controller.
+	if r.needsServiceAccount(obj) && !r.serviceAccountExists(ctx, obj) {
+		msg := "unable to prune managed objects, the ServiceAccount used for authorization is no longer available"
+		log.Error(fmt.Errorf("ServiceAccount is missing, skipping pruning"), msg, "objects", obj.Status.Inventory)
+		r.Eventf(obj, nil, corev1.EventTypeWarning, swapi.AccessDeniedReason, swapi.ActionReconcile.String(), "%s", msg)
+		controllerutil.RemoveFinalizer(obj, swapi.Finalizer)
+		log.Info("Removed finalizer", "finalizer", swapi.Finalizer)
+		return ctrl.Result{}, nil
 	}
 
 	// Delete the objects found in the inventory. Objects whose deletion is
 	// not confirmed are kept in the inventory so the finalizer is retried on
 	// the next reconciliation.
-	survivors := r.finalizeReferences(ctx, obj, obj.Status.Inventory, impersonated)
+	survivors := r.finalizeReferences(ctx, obj, obj.Status.Inventory, auth)
 	if len(survivors) > 0 {
 		obj.Status.Inventory = survivors
 		msg := fmt.Sprintf("failed to prune %d object(s), retrying", len(survivors))
@@ -92,7 +84,7 @@ func (r *ArtifactGeneratorReconciler) finalize(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) finalizeReferences(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	refs []swapi.InventoryEntry,
-	impersonated client.Client) []swapi.InventoryEntry {
+	auth *accessChecker) []swapi.InventoryEntry {
 	log := ctrl.LoggerFrom(ctx)
 	var survivors []swapi.InventoryEntry
 
@@ -102,20 +94,18 @@ func (r *ArtifactGeneratorReconciler) finalizeReferences(ctx context.Context,
 				log.Info("Skipping managed namespace deletion, pruning is disabled", "namespace", ref.Name)
 				continue
 			}
-			// Namespace management always requires an impersonated client, so
-			// without one the namespace cannot be deleted safely.
-			if impersonated == nil {
-				log.Info("Skipping managed namespace deletion, no impersonated client available", "namespace", ref.Name)
+			if obj.Spec.ServiceAccountName == "" && r.DefaultServiceAccount == "" {
+				log.Info("Skipping managed namespace deletion, no ServiceAccount configured", "namespace", ref.Name)
 				continue
 			}
-			if err := r.deleteNamespace(ctx, ref.Name, impersonated); err != nil {
+			if err := r.deleteNamespace(ctx, obj, ref.Name, auth); err != nil {
 				log.Error(err, "Failed to delete Namespace, will retry", "namespace", ref.Name)
 				survivors = append(survivors, ref)
 			}
 			continue
 		}
 
-		if err := r.finalizeExternalArtifact(ctx, obj, ref, impersonated); err != nil {
+		if err := r.finalizeExternalArtifact(ctx, obj, ref, auth); err != nil {
 			log.Error(err, "Failed to delete ExternalArtifact, will retry",
 				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name))
 			survivors = append(survivors, ref)
@@ -130,8 +120,12 @@ func (r *ArtifactGeneratorReconciler) finalizeReferences(ctx context.Context,
 func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	ref swapi.InventoryEntry,
-	impersonated client.Client) error {
+	auth *accessChecker) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	if err := auth.ensureExternalArtifactVerb(ctx, ref.Namespace, "delete", ""); err != nil {
+		return err
+	}
 
 	// Delete from storage.
 	var retErr error
@@ -149,7 +143,7 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Conte
 			Namespace: ref.Namespace,
 		},
 	}
-	if err := r.clientForNamespace(obj, impersonated, ref.Namespace).Delete(ctx, ea); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.Client.Delete(ctx, ea); err != nil && !apierrors.IsNotFound(err) {
 		retErr = errors.Join(retErr, fmt.Errorf("failed to delete ExternalArtifact: %w", err))
 	} else {
 		log.Info(fmt.Sprintf("%s/%s/%s deleted from cluster", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name))

@@ -63,16 +63,6 @@ type namespacePolicies struct {
 	allowedAnnotations map[string]*cel.Expression
 }
 
-// requireNamespaceClient returns the impersonated client used for namespace
-// management. Namespace management never falls back to the controller client,
-// so an error is returned when no impersonated client is available.
-func requireNamespaceClient(impersonated client.Client) (client.Client, error) {
-	if impersonated == nil {
-		return nil, fmt.Errorf("namespace management requires an impersonated client")
-	}
-	return impersonated, nil
-}
-
 // terminalNamespaceMetadataError marks an error that can only be resolved by a
 // change to the ArtifactGenerator spec or to the source content. Both changes
 // trigger a reconcile through a watch event (the generation predicate or the
@@ -215,15 +205,10 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespaces(ctx context.Context,
 	reqs []artifactRequest,
 	localSources map[string]string,
 	workDir string,
-	impersonated client.Client,
+	auth *accessChecker,
 	policies *namespacePolicies) ([]swapi.InventoryEntry, []namespaceConflict, error) {
 	// Validate the namespace metadata source path before touching the cluster.
 	if err := validateNamespaceMetadataPaths(obj, reqs); err != nil {
-		return nil, nil, err
-	}
-
-	kubeClient, err := requireNamespaceClient(impersonated)
-	if err != nil {
 		return nil, nil, err
 	}
 
@@ -271,7 +256,7 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespaces(ctx context.Context,
 	var refs []swapi.InventoryEntry
 	var conflicts []namespaceConflict
 	for _, p := range planned {
-		ref, conflict, err := r.reconcileNamespace(ctx, obj, p.name, p.labels, p.annotations, kubeClient)
+		ref, conflict, err := r.reconcileNamespace(ctx, obj, p.name, p.labels, p.annotations, auth)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -333,7 +318,7 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespace(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
 	name string,
 	labels, annotations map[string]string,
-	kubeClient client.Client) (*swapi.InventoryEntry, *namespaceConflict, error) {
+	auth *accessChecker) (*swapi.InventoryEntry, *namespaceConflict, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	digest := namespaceMetadataDigest(labels, annotations)
@@ -342,7 +327,10 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespace(ctx context.Context,
 	// Detect adoption or ownership conflict before applying.
 	var conflict *namespaceConflict
 	existing := &corev1.Namespace{}
-	err := kubeClient.Get(ctx, client.ObjectKey{Name: name}, existing)
+	if err := auth.ensureNamespaceVerb(ctx, "get"); err != nil {
+		return nil, nil, err
+	}
+	err := r.reader().Get(ctx, client.ObjectKey{Name: name}, existing)
 	switch {
 	case apierrors.IsNotFound(err):
 		// The namespace will be created.
@@ -372,7 +360,27 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespace(ctx context.Context,
 		}, nil, nil
 	}
 
-	manager := r.newNamespaceManager(kubeClient)
+	// The apply library skips namespaces with the exclusion annotations. Check
+	// them here to avoid requesting apply permissions that will not be used.
+	if namespaceApplyExcluded(labels, annotations, existing) {
+		log.Info("Namespace apply skipped, reconciliation is disabled", "namespace", name)
+		return &swapi.InventoryEntry{
+			Kind:   swapi.NamespaceKind,
+			Name:   name,
+			Digest: digest,
+		}, nil, nil
+	}
+
+	if existing.GetUID() == "" {
+		if err := auth.ensureNamespaceVerb(ctx, "create"); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := auth.ensureNamespaceVerb(ctx, "patch"); err != nil {
+		return nil, nil, err
+	}
+
+	manager := r.newNamespaceManager()
 	entry, err := manager.Apply(ctx, desired, r.namespaceApplyOptions())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to apply Namespace: %w", err)
@@ -411,7 +419,7 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespace(ctx context.Context,
 	case ssa.CreatedAction:
 		log.Info(fmt.Sprintf("Namespace %s created", name))
 		created := &corev1.Namespace{}
-		if err := kubeClient.Get(ctx, client.ObjectKey{Name: name}, created); err != nil {
+		if err := r.reader().Get(ctx, client.ObjectKey{Name: name}, created); err != nil {
 			log.Error(err, "failed to get Namespace for event", "namespace", name)
 		} else {
 			r.Eventf(created, nil, eventv1.EventTypeTrace, gotkmeta.ReadyCondition, swapi.ActionPublish.String(),
@@ -434,8 +442,8 @@ func (r *ArtifactGeneratorReconciler) reconcileNamespace(ctx context.Context,
 
 // newNamespaceManager returns a server-side apply resource manager for
 // cluster-scoped Namespace objects.
-func (r *ArtifactGeneratorReconciler) newNamespaceManager(kubeClient client.Client) *ssa.ResourceManager {
-	return ssa.NewResourceManager(kubeClient, nil, ssa.Owner{
+func (r *ArtifactGeneratorReconciler) newNamespaceManager() *ssa.ResourceManager {
+	return ssa.NewResourceManager(r.Client, nil, ssa.Owner{
 		Field: r.ControllerName,
 		Group: swapi.GroupVersion.Group,
 	})
@@ -751,19 +759,21 @@ func namespaceMetadataDigest(labels, annotations map[string]string) string {
 // with the IfNotPresent policy are never reported as drifted.
 func (r *ArtifactGeneratorReconciler) detectNamespacesDrift(ctx context.Context,
 	obj *swapi.ArtifactGenerator,
-	impersonated client.Client) (bool, error) {
+	auth *accessChecker) (bool, error) {
 	if !obj.ManagesNamespaces() {
 		return false, nil
 	}
 
-	kubeClient := impersonated
 	for _, ref := range obj.Status.Inventory {
 		if ref.Kind != swapi.NamespaceKind {
 			continue
 		}
+		if err := auth.ensureNamespaceVerb(ctx, "get"); err != nil {
+			return false, err
+		}
 		expectedLabels, expectedAnnotations := r.namespaceMetadataFor(obj, ref.Name, nil, nil)
 		ns := &corev1.Namespace{}
-		err := kubeClient.Get(ctx, client.ObjectKey{Name: ref.Name}, ns)
+		err := r.reader().Get(ctx, client.ObjectKey{Name: ref.Name}, ns)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return false, err
 		}
@@ -808,6 +818,14 @@ func matchesNamespaceMetadata(labels, annotations map[string]string, key, value 
 	return strings.EqualFold(labels[key], value) || strings.EqualFold(annotations[key], value)
 }
 
+// namespaceDeleteExcluded returns true when the namespace metadata matches the
+// delete exclusion annotations.
+func namespaceDeleteExcluded(ns *corev1.Namespace) bool {
+	return matchesNamespaceMetadata(ns.Labels, ns.Annotations, swapi.PruneAnnotation, swapi.DisabledValue) ||
+		matchesNamespaceMetadata(ns.Labels, ns.Annotations, swapi.ReconcileAnnotation, swapi.DisabledValue) ||
+		matchesNamespaceMetadata(ns.Labels, ns.Annotations, swapi.SSAAnnotation, swapi.IgnoreValue)
+}
+
 // namespaceIfNotPresent returns true when the expected or actual namespace
 // metadata matches the IfNotPresent annotation.
 func namespaceIfNotPresent(expectedLabels, expectedAnnotations map[string]string, ns *corev1.Namespace) bool {
@@ -823,26 +841,37 @@ func namespaceIfNotPresent(expectedLabels, expectedAnnotations map[string]string
 // 'ssa=Ignore'). It returns an error when the deletion was not confirmed by
 // the API server.
 func (r *ArtifactGeneratorReconciler) deleteNamespace(ctx context.Context,
+	obj *swapi.ArtifactGenerator,
 	name string,
-	impersonated client.Client) error {
+	auth *accessChecker) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	kubeClient, err := requireNamespaceClient(impersonated)
-	if err != nil {
+	if err := auth.ensureNamespaceVerb(ctx, "get"); err != nil {
 		return err
 	}
 
 	// The namespace may delegate its finalization to an external object. When
-	// the referenced object exists, the controller hands off the deletion and
-	// stops tracking the namespace, so that the external finalizer can perform
-	// the ordered garbage collection.
-	externallyFinalized, err := r.namespaceExternallyFinalized(ctx, name, kubeClient)
+	// the annotation is valid, the controller hands off the deletion and stops
+	// tracking the namespace, so that the external finalizer can perform the
+	// ordered garbage collection.
+	existing, externallyFinalized, err := r.namespaceExternallyFinalized(ctx, name)
 	if err != nil {
 		return err
+	}
+	if existing == nil {
+		return nil
 	}
 	if externallyFinalized {
 		log.Info("Skipping managed namespace deletion, finalization is delegated to an external object", "namespace", name)
 		return nil
+	}
+	if namespaceDeleteExcluded(existing) {
+		log.Info("Skipping managed namespace deletion, deletion is disabled", "namespace", name)
+		return nil
+	}
+
+	if err := auth.ensureNamespaceVerb(ctx, "delete"); err != nil {
+		return err
 	}
 
 	ns := newNamespace(name, nil, nil)
@@ -853,7 +882,7 @@ func (r *ArtifactGeneratorReconciler) deleteNamespace(ctx context.Context,
 		swapi.SSAAnnotation:       swapi.IgnoreValue,
 	}
 
-	entry, err := r.newNamespaceManager(kubeClient).Delete(ctx, ns, opts)
+	entry, err := r.newNamespaceManager().Delete(ctx, ns, opts)
 	if err != nil {
 		return err
 	}
