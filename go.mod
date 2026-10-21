@@ -11,14 +11,14 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/fluxcd/pkg/apis/event v0.32.0
-	github.com/fluxcd/pkg/apis/meta v1.35.0
-	github.com/fluxcd/pkg/artifact v0.24.0
+	github.com/fluxcd/pkg/apis/meta v1.36.0
+	github.com/fluxcd/pkg/artifact v0.25.0
 	github.com/fluxcd/pkg/http/fetch v0.28.0
-	github.com/fluxcd/pkg/runtime v0.119.0
-	github.com/fluxcd/pkg/ssa v0.78.0
+	github.com/fluxcd/pkg/runtime v0.120.0
+	github.com/fluxcd/pkg/ssa v0.80.0
 	github.com/fluxcd/pkg/tar v1.3.0
 	github.com/fluxcd/pkg/testserver v0.15.0
-	github.com/fluxcd/source-controller/api v1.9.1-0.20261014195956-effd29b2da5b
+	github.com/fluxcd/source-controller/api v1.9.6
 	github.com/fluxcd/source-watcher/api/v2 v2.2.0
 	github.com/onsi/gomega v1.43.0
 	github.com/opencontainers/go-digest v1.0.0
