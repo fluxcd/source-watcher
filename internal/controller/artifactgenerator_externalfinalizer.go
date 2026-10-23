@@ -24,8 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,8 +35,8 @@ import (
 // externalFinalizerRef identifies the object a managed namespace delegates its
 // finalization to, parsed from the source.extensions.fluxcd.io/externalFinalizer
 // annotation. The reference is fully qualified (group, version, kind,
-// namespace, name and UID) so that the controller can look the object up
-// without first resolving the kind API version in the cluster.
+// namespace, name and UID) so that it is unambiguous without resolving the kind
+// in the cluster.
 type externalFinalizerRef struct {
 	Group     string
 	Version   string
@@ -55,27 +53,57 @@ func (r externalFinalizerRef) GroupVersionKind() schema.GroupVersionKind {
 
 // String returns the fully qualified reference in the annotation format.
 func (r externalFinalizerRef) String() string {
-	return strings.Join([]string{r.Group, r.Version, r.Kind, r.Namespace, r.Name, string(r.UID)}, "/")
+	group := r.Group
+	if group == "" {
+		group = "core"
+	}
+	parts := []string{group, r.Version, r.Kind}
+	if r.Namespace != "" {
+		parts = append(parts, r.Namespace)
+	}
+	parts = append(parts, r.Name, string(r.UID))
+	return strings.Join(parts, "/")
 }
 
 // parseExternalFinalizerRef parses the value of the externalFinalizer
-// annotation, which has the format
-// "group/version/kind/namespace/name/uid". The group and the namespace may be
-// empty for core and cluster-scoped resources respectively.
+// annotation. Namespaced objects use
+// "group/version/kind/namespace/name/uid", while cluster-scoped objects use
+// "group/version/kind/name/uid". The core group is written as "core".
 func parseExternalFinalizerRef(value string) (externalFinalizerRef, error) {
 	parts := strings.Split(value, "/")
-	if len(parts) != 6 {
-		return externalFinalizerRef{}, fmt.Errorf("expected 6 slash-separated segments in 'group/version/kind/namespace/name/uid', got %d", len(parts))
+	var ref externalFinalizerRef
+	namespaced := len(parts) == 6
+	switch len(parts) {
+	case 6:
+		ref = externalFinalizerRef{
+			Group:     parts[0],
+			Version:   parts[1],
+			Kind:      parts[2],
+			Namespace: parts[3],
+			Name:      parts[4],
+			UID:       types.UID(parts[5]),
+		}
+	case 5:
+		ref = externalFinalizerRef{
+			Group:   parts[0],
+			Version: parts[1],
+			Kind:    parts[2],
+			Name:    parts[3],
+			UID:     types.UID(parts[4]),
+		}
+	default:
+		return externalFinalizerRef{}, fmt.Errorf(
+			"expected 5 or 6 slash-separated segments, got %d", len(parts))
 	}
-	ref := externalFinalizerRef{
-		Group:     parts[0],
-		Version:   parts[1],
-		Kind:      parts[2],
-		Namespace: parts[3],
-		Name:      parts[4],
-		UID:       types.UID(parts[5]),
+	switch ref.Group {
+	case "core":
+		ref.Group = ""
+	case "":
+		return externalFinalizerRef{}, errors.New("group must not be empty")
 	}
 	switch {
+	case namespaced && ref.Namespace == "":
+		return externalFinalizerRef{}, errors.New("namespace must not be empty")
 	case ref.Version == "":
 		return externalFinalizerRef{}, errors.New("version must not be empty")
 	case ref.Kind == "":
@@ -88,62 +116,40 @@ func parseExternalFinalizerRef(value string) (externalFinalizerRef, error) {
 	return ref, nil
 }
 
-// namespaceExternallyFinalized returns true when the given managed namespace
+// namespaceExternallyFinalized returns the managed Namespace and true when it
 // delegates its finalization to an external object. This is the case when the
-// namespace carries the externalFinalizer annotation and the referenced object
-// exists in the cluster with the same UID.
+// namespace carries a valid externalFinalizer annotation.
 //
-// A missing object, or an object with a different UID (a recreated
-// incarnation), does not hand over the finalization: the controller remains
-// accountable for deleting the namespace, so a failed handoff cannot leak it.
-// The same applies to a malformed annotation value, which is ignored so the
-// controller stays accountable.
+// The referenced object is not looked up: the annotation is trusted as written,
+// which keeps the controller RBAC narrow and avoids caching arbitrary kinds. A
+// malformed annotation value is reported to the caller, which surfaces it to
+// controller-runtime for a retry.
 func (r *ArtifactGeneratorReconciler) namespaceExternallyFinalized(ctx context.Context,
-	name string,
-	kubeClient client.Client) (bool, error) {
+	name string) (*corev1.Namespace, bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	ns := &corev1.Namespace{}
-	if err := kubeClient.Get(ctx, client.ObjectKey{Name: name}, ns); err != nil {
+	if err := r.reader().Get(ctx, client.ObjectKey{Name: name}, ns); err != nil {
 		if apierrors.IsNotFound(err) {
-			return false, nil
+			return nil, false, nil
 		}
-		return false, fmt.Errorf("failed to get Namespace for external finalizer check: %w", err)
+		return nil, false, fmt.Errorf("failed to get Namespace for external finalizer check: %w", err)
 	}
 
 	value, ok := ns.Annotations[swapi.ExternalFinalizerAnnotation]
 	if !ok || value == "" {
-		return false, nil
+		log.Info("No external finalizer claimed the namespace, proceeding with cleanup", "namespace", name)
+		return ns, false, nil
 	}
 
-	ref, err := parseExternalFinalizerRef(value)
-	if err != nil {
-		log.Error(err, "Ignoring malformed external finalizer annotation, the controller remains accountable",
-			"namespace", name, "annotation", swapi.ExternalFinalizerAnnotation, "value", value)
-		return false, nil
+	if _, err := parseExternalFinalizerRef(value); err != nil {
+		return nil, false, fmt.Errorf("invalid %q annotation on namespace %q: %w",
+			swapi.ExternalFinalizerAnnotation, name, err)
 	}
 
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(ref.GroupVersionKind())
-	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, obj); err != nil {
-		switch {
-		case apierrors.IsNotFound(err), apimeta.IsNoMatchError(err):
-			log.Info("External finalizer object not found, the controller remains accountable",
-				"namespace", name, "object", ref.String())
-			return false, nil
-		default:
-			return false, fmt.Errorf("failed to get external finalizer object %s: %w", ref.String(), err)
-		}
-	}
-
-	if string(obj.GetUID()) != string(ref.UID) {
-		log.Info("External finalizer object UID mismatch, the controller remains accountable",
-			"namespace", name, "object", ref.String(), "uid", obj.GetUID())
-		return false, nil
-	}
-
-	log.Info("Namespace finalization is delegated to an external object", "namespace", name, "object", ref.String())
-	return true, nil
+	log.Info("Namespace finalization is delegated to an external object",
+		"namespace", name, "externalFinalizer", value)
+	return ns, true, nil
 }
 
 // validateNamespaceMetadataExternalFinalizer rejects the reserved

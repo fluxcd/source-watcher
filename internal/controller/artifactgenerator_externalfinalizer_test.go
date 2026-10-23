@@ -41,30 +41,41 @@ import (
 func TestParseExternalFinalizerRef(t *testing.T) {
 	g := NewWithT(t)
 
-	ref, err := parseExternalFinalizerRef("fluxcd.controlplane.io/v1/ResourceSet//tenants/1234-uid")
+	ref, err := parseExternalFinalizerRef("fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/1234-uid")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(ref.Group).To(Equal("fluxcd.controlplane.io"))
 	g.Expect(ref.Version).To(Equal("v1"))
 	g.Expect(ref.Kind).To(Equal("ResourceSet"))
-	g.Expect(ref.Namespace).To(BeEmpty())
+	g.Expect(ref.Namespace).To(Equal("flux-system"))
 	g.Expect(ref.Name).To(Equal("tenants"))
 	g.Expect(ref.UID).To(Equal(types.UID("1234-uid")))
 	g.Expect(ref.GroupVersionKind().String()).To(Equal("fluxcd.controlplane.io/v1, Kind=ResourceSet"))
-	g.Expect(ref.String()).To(Equal("fluxcd.controlplane.io/v1/ResourceSet//tenants/1234-uid"))
+	g.Expect(ref.String()).To(Equal("fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/1234-uid"))
 
 	// Core group and namespaced object.
-	ref, err = parseExternalFinalizerRef("/v1/ConfigMap/flux-system/rset/abc")
+	ref, err = parseExternalFinalizerRef("core/v1/ConfigMap/flux-system/rset/abc")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(ref.Group).To(BeEmpty())
 	g.Expect(ref.Namespace).To(Equal("flux-system"))
+	g.Expect(ref.String()).To(Equal("core/v1/ConfigMap/flux-system/rset/abc"))
+
+	// Core group and cluster-scoped object.
+	ref, err = parseExternalFinalizerRef("core/v1/Namespace/tenant/abc")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(ref.Group).To(BeEmpty())
+	g.Expect(ref.Namespace).To(BeEmpty())
+	g.Expect(ref.Name).To(Equal("tenant"))
+	g.Expect(ref.String()).To(Equal("core/v1/Namespace/tenant/abc"))
 
 	for _, value := range []string{
 		"self",
-		"fluxcd.controlplane.io/v1/ResourceSet/tenants/uid",
-		"fluxcd.controlplane.io/v1/ResourceSet//tenants",
+		"fluxcd.controlplane.io/v1/ResourceSet/tenants",
+		"fluxcd.controlplane.io/v1/ResourceSet//tenants/uid",
 		"fluxcd.controlplane.io/v1///tenants/uid",
 		"fluxcd.controlplane.io/v1/ResourceSet//tenants/",
-		"fluxcd.controlplane.io//ResourceSet//tenants/uid",
+		"fluxcd.controlplane.io//ResourceSet/tenants/uid",
+		"/v1/ConfigMap/flux-system/rset/abc",
+		"/v1/Namespace/tenant/abc",
 	} {
 		_, err := parseExternalFinalizerRef(value)
 		g.Expect(err).To(HaveOccurred(), "value %q should be rejected", value)
@@ -78,7 +89,7 @@ func TestValidateNamespaceMetadataExternalFinalizer(t *testing.T) {
 	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", nil, map[string]string{"owner": "platform"})).To(Succeed())
 
 	err := validateNamespaceMetadataExternalFinalizer("tenant", nil, map[string]string{
-		swapi.ExternalFinalizerAnnotation: "fluxcd.controlplane.io/v1/ResourceSet//tenants/uid",
+		swapi.ExternalFinalizerAnnotation: "fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/uid",
 	})
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring(swapi.ExternalFinalizerAnnotation))
@@ -93,50 +104,45 @@ func TestNamespaceExternallyFinalized(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-		Name: "rset", Namespace: "flux-system", UID: types.UID("uid-1"),
-	}}
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant"}}
-	kubeClient := fake.NewClientBuilder().WithScheme(NewTestScheme()).WithObjects(cm, ns).Build()
-	r := &ArtifactGeneratorReconciler{Client: kubeClient}
+	kubeClient := fake.NewClientBuilder().WithScheme(NewTestScheme()).WithObjects(ns).Build()
+	r := &ArtifactGeneratorReconciler{
+		Client:   kubeClient,
+		Recorder: testEnv.GetEventRecorder(controllerName),
+	}
 
 	// Without the annotation the controller remains accountable.
-	finalized, err := r.namespaceExternallyFinalized(ctx, "tenant", kubeClient)
+	_, finalized, err := r.namespaceExternallyFinalized(ctx, "tenant")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(finalized).To(BeFalse())
 
-	// A matching reference hands over the finalization.
+	// A valid reference hands over the finalization without looking up the
+	// referenced object.
 	ns.Annotations = map[string]string{
-		swapi.ExternalFinalizerAnnotation: "/v1/ConfigMap/flux-system/rset/uid-1",
+		swapi.ExternalFinalizerAnnotation: "core/v1/ConfigMap/flux-system/missing/uid-1",
 	}
 	g.Expect(kubeClient.Update(ctx, ns)).To(Succeed())
-	finalized, err = r.namespaceExternallyFinalized(ctx, "tenant", kubeClient)
+	_, finalized, err = r.namespaceExternallyFinalized(ctx, "tenant")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(finalized).To(BeTrue())
 
-	// A UID mismatch (recreated incarnation) keeps the controller accountable.
-	ns.Annotations[swapi.ExternalFinalizerAnnotation] = "/v1/ConfigMap/flux-system/rset/uid-2"
+	// A cluster-scoped reference is also accepted.
+	ns.Annotations[swapi.ExternalFinalizerAnnotation] = "fluxcd.controlplane.io/v1/ResourceSet/tenants/uid-2"
 	g.Expect(kubeClient.Update(ctx, ns)).To(Succeed())
-	finalized, err = r.namespaceExternallyFinalized(ctx, "tenant", kubeClient)
+	_, finalized, err = r.namespaceExternallyFinalized(ctx, "tenant")
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(finalized).To(BeFalse())
+	g.Expect(finalized).To(BeTrue())
 
-	// A malformed value keeps the controller accountable.
+	// A malformed value is propagated to the caller.
 	ns.Annotations[swapi.ExternalFinalizerAnnotation] = "self"
 	g.Expect(kubeClient.Update(ctx, ns)).To(Succeed())
-	finalized, err = r.namespaceExternallyFinalized(ctx, "tenant", kubeClient)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(finalized).To(BeFalse())
-
-	// A missing object keeps the controller accountable.
-	ns.Annotations[swapi.ExternalFinalizerAnnotation] = "/v1/ConfigMap/flux-system/missing/uid-1"
-	g.Expect(kubeClient.Update(ctx, ns)).To(Succeed())
-	finalized, err = r.namespaceExternallyFinalized(ctx, "tenant", kubeClient)
-	g.Expect(err).ToNot(HaveOccurred())
+	_, finalized, err = r.namespaceExternallyFinalized(ctx, "tenant")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring(swapi.ExternalFinalizerAnnotation))
 	g.Expect(finalized).To(BeFalse())
 
 	// A missing namespace is treated as already gone.
-	finalized, err = r.namespaceExternallyFinalized(ctx, "does-not-exist", kubeClient)
+	_, finalized, err = r.namespaceExternallyFinalized(ctx, "does-not-exist")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(finalized).To(BeFalse())
 }
@@ -153,7 +159,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizer(t *testi
 	tgtName := fmt.Sprintf("test-mns-extfin-tgt-%s", rand.String(5))
 
 	saName := "test-mns-extfin-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-extfin", Namespace: srcNS.Name}
@@ -196,7 +202,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizer(t *testi
 	if ns.Annotations == nil {
 		ns.Annotations = map[string]string{}
 	}
-	ns.Annotations[swapi.ExternalFinalizerAnnotation] = fmt.Sprintf("/v1/ConfigMap/%s/%s/%s", fin.Namespace, fin.Name, fin.UID)
+	ns.Annotations[swapi.ExternalFinalizerAnnotation] = fmt.Sprintf("core/v1/ConfigMap/%s/%s/%s", fin.Namespace, fin.Name, fin.UID)
 	g.Expect(testClient.Update(ctx, ns)).To(Succeed())
 
 	// Deleting the ArtifactGenerator hands the namespace over: the finalizer is
@@ -209,22 +215,22 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizer(t *testi
 	g.Expect(testClient.Get(ctx, client.ObjectKey{Name: tgtName}, ns)).To(Succeed())
 }
 
-func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizerNotFound(t *testing.T) {
+func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizerMalformed(t *testing.T) {
 	g := NewWithT(t)
 	reconciler := getArtifactGeneratorReconciler()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	srcNS, err := testEnv.CreateNamespace(ctx, "test-mns-extfin-missing-src")
+	srcNS, err := testEnv.CreateNamespace(ctx, "test-mns-extfin-malformed-src")
 	g.Expect(err).ToNot(HaveOccurred())
 
-	tgtName := fmt.Sprintf("test-mns-extfin-missing-tgt-%s", rand.String(5))
+	tgtName := fmt.Sprintf("test-mns-extfin-malformed-tgt-%s", rand.String(5))
 
-	saName := "test-mns-extfin-missing-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	saName := "test-mns-extfin-malformed-sa"
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
-	objKey := client.ObjectKey{Name: "test-mns-extfin-missing", Namespace: srcNS.Name}
+	objKey := client.ObjectKey{Name: "test-mns-extfin-malformed", Namespace: srcNS.Name}
 	obj := getArtifactGenerator(objKey)
 	obj.Spec.ServiceAccountName = saName
 	obj.Spec.Sources = obj.Spec.Sources[:1]
@@ -253,22 +259,22 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizerNotFound(
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
 	g.Expect(err).ToNot(HaveOccurred())
 
-	// Delegate the finalization to an object that does not exist. The
-	// controller remains accountable and deletes the namespace.
+	// A malformed reference is surfaced as an error, so the finalization is
+	// retried and the namespace is not deleted.
 	ns := &corev1.Namespace{}
 	g.Expect(testClient.Get(ctx, client.ObjectKey{Name: tgtName}, ns)).To(Succeed())
 	if ns.Annotations == nil {
 		ns.Annotations = map[string]string{}
 	}
-	ns.Annotations[swapi.ExternalFinalizerAnnotation] = "/v1/ConfigMap/flux-system/missing-object/00000000-0000-0000-0000-000000000000"
+	ns.Annotations[swapi.ExternalFinalizerAnnotation] = "self"
 	g.Expect(testClient.Update(ctx, ns)).To(Succeed())
 
 	g.Expect(testClient.Get(ctx, objKey, obj)).To(Succeed())
 	g.Expect(testClient.Delete(ctx, obj)).To(Succeed())
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: objKey})
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(apierrors.IsNotFound(testClient.Get(ctx, objKey, &swapi.ArtifactGenerator{}))).To(BeTrue())
-	expectNamespaceDeleted(g, ctx, tgtName)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(testClient.Get(ctx, objKey, &swapi.ArtifactGenerator{})).To(Succeed())
+	g.Expect(testClient.Get(ctx, client.ObjectKey{Name: tgtName}, ns)).To(Succeed())
 }
 
 func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizerDesiredState(t *testing.T) {
@@ -283,7 +289,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizerDesiredSt
 	tgtName := fmt.Sprintf("test-mns-extfin-desired-tgt-%s", rand.String(5))
 
 	saName := "test-mns-extfin-desired-sa"
-	g.Expect(createImpersonationRBAC(ctx, saName, srcNS.Name)).To(Succeed())
+	g.Expect(createServiceAccountRBAC(ctx, saName, srcNS.Name)).To(Succeed())
 	g.Expect(grantNamespaceManagement(ctx, saName, srcNS.Name)).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-mns-extfin-desired", Namespace: srcNS.Name}
@@ -296,7 +302,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizerDesiredSt
 	}
 	obj.Spec.CommonMetadata = &swapi.CommonMetadata{
 		Annotations: map[string]string{
-			swapi.ExternalFinalizerAnnotation: "/v1/ConfigMap/flux-system/rset/uid",
+			swapi.ExternalFinalizerAnnotation: "core/v1/ConfigMap/flux-system/rset/uid",
 		},
 	}
 	obj.Spec.OutputArtifacts = []swapi.OutputArtifact{

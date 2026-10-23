@@ -220,7 +220,7 @@ metadata:
 kind: NamespaceMetadata
 metadata:
   annotations:
-    source.extensions.fluxcd.io/externalFinalizer: fluxcd.controlplane.io/v1/ResourceSet//tenants/uid
+    source.extensions.fluxcd.io/externalFinalizer: fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/uid
 `), 0o644)).To(Succeed())
 	obj.Spec.ManagedNamespaces.Metadata.FromSource.AllowedAnnotations = map[string]string{
 		swapi.ExternalFinalizerAnnotation: "value.matches('.*')",

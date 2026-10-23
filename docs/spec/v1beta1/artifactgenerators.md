@@ -497,17 +497,21 @@ ExternalArtifact in a different namespace. This is useful for multi-tenant clust
 where the sources and the ArtifactGenerator run in a shared namespace, while the
 generated artifacts are consumed by tenants in their own namespaces.
 
-When `.spec.serviceAccountName` is set, the controller impersonates that
-ServiceAccount for every generated ExternalArtifact, including the ones created
-in the ArtifactGenerator namespace. The ServiceAccount must exist in the
-ArtifactGenerator namespace, and its RBAC bindings determine which namespaces it
-can access.
+When `.spec.serviceAccountName` is set, the controller checks with
+SubjectAccessReview that the ServiceAccount is allowed to perform the required
+operations in every namespace targeted by the generated ExternalArtifacts,
+including the ArtifactGenerator namespace, and then performs the operations
+with its own credentials. Checks are deduplicated per namespace, so artifacts
+sharing a namespace share the same authorization checks. The name is resolved
+in the ArtifactGenerator namespace, and its RBAC bindings determine which
+namespaces it can access.
 
 When `.spec.serviceAccountName` is not specified, the controller uses its own
 credentials for artifacts in the ArtifactGenerator namespace (the default when
-`.namespace` is not set). For artifacts targeting another namespace, it uses the
-ServiceAccount configured with the `--default-service-account` flag (see below),
-or its own credentials when the flag is not set.
+`.namespace` is not set). For artifacts targeting another namespace, it
+authorizes the operations against the ServiceAccount configured with the
+`--default-service-account` flag (see below), or uses its own credentials when
+the flag is not set.
 
 For example, the following generator creates an ExternalArtifact in the `tenant-app`
 namespace, using the `tenant-artifacts` ServiceAccount:
@@ -533,7 +537,7 @@ spec:
 ```
 
 **Note** that on multi-tenant clusters, platform admins should configure a default
-ServiceAccount for impersonation by starting the controller with the
+ServiceAccount for authorization by starting the controller with the
 `--default-service-account=<name>` flag. It is used whenever
 `.spec.serviceAccountName` is not specified, and only applies to artifacts
 targeting a namespace different from the ArtifactGenerator namespace and to the
@@ -694,10 +698,10 @@ or is a reserved namespace (`default`, `kube-system`, `kube-public` or
 `flux-system`), the reconciliation fails with a terminal error before the
 namespace is created or modified.
 
-Managing namespaces always uses an impersonated ServiceAccount and never the
-controller credentials, so either `.spec.serviceAccountName` or the
-`--default-service-account` flag must be set. Otherwise the reconciliation
-fails with a terminal error.
+Managing namespaces always requires a ServiceAccount for authorization, so
+either `.spec.serviceAccountName` or the `--default-service-account` flag must
+be set. Otherwise the reconciliation fails with a terminal error. The
+controller performs the namespace operations with its own credentials.
 
 When `.spec.managedNamespaces` is set, the controller creates the namespaces
 that do not exist and applies `.spec.commonMetadata` to all of them, along with
@@ -745,7 +749,7 @@ reconciliation, keeping the ArtifactGenerator in the terminating state when
 it is being deleted.
 
 Deleting an ArtifactGenerator that manages namespaces or cross-namespace
-artifacts requires the impersonated ServiceAccount. If it is no longer
+artifacts requires the authorizing ServiceAccount. If it is no longer
 available, the controller cannot prune the managed objects: it logs them, leaves
 them behind and removes the finalizer so that the ArtifactGenerator is not stuck
 terminating. Restore the ServiceAccount before deleting the ArtifactGenerator to
@@ -829,26 +833,38 @@ annotation, whose value is a fully qualified object reference:
 group/version/kind/namespace/name/uid
 ```
 
-The API version and the UID are mandatory. The group is empty for core
-resources, and the namespace is empty for cluster-scoped resources. For
-example:
+Cluster-scoped objects omit the namespace segment:
+
+```
+group/version/kind/name/uid
+```
+
+The API version and the UID are mandatory. The group is `core` for core
+resources. For example:
 
 ```yaml
 metadata:
   annotations:
-    source.extensions.fluxcd.io/externalFinalizer: fluxcd.controlplane.io/v1/ResourceSet//tenants/6d7c0f20-9d1e-4a4d-9d3c-1c0e0e2f4b1a
+    source.extensions.fluxcd.io/externalFinalizer: fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/6d7c0f20-9d1e-4a4d-9d3c-1c0e0e2f4b1a
 ```
 
-When the annotation is present on a managed namespace, the controller checks
-that the referenced object exists in the cluster with the same UID before
-deleting the namespace, whether the deletion is triggered because no generated
-artifact targets the namespace anymore or because the ArtifactGenerator is
-being deleted. If the object exists, the controller skips the deletion and
-stops tracking the namespace, letting the external finalizer perform the
-deletion. If the object is missing, has a different UID (a recreated
-incarnation), or the annotation is malformed, the controller remains
-accountable and deletes the namespace as usual, so a failed handoff cannot leak
-it.
+A core resource uses the `core` group:
+
+```yaml
+metadata:
+  annotations:
+    source.extensions.fluxcd.io/externalFinalizer: core/v1/ConfigMap/flux-system/rset/6d7c0f20-9d1e-4a4d-9d3c-1c0e0e2f4b1a
+```
+
+When the annotation is present and valid on a managed namespace, the controller
+skips the deletion and stops tracking the namespace, whether the deletion is
+triggered because no generated artifact targets the namespace anymore or
+because the ArtifactGenerator is being deleted, letting the external finalizer
+perform the deletion. The reference is trusted as written: the controller does
+not look up the referenced object, so it needs no `get` permission on that kind
+and does not cache it. A malformed annotation value is returned as a
+reconciliation error, so the deletion is retried until the annotation is fixed
+or removed.
 
 The annotation is read from the in-cluster Namespace and must be set by an
 external actor. It is rejected when it appears in the metadata the controller
@@ -860,13 +876,14 @@ finalization can recognize the special value `self` and stamp the fully
 qualified reference when the namespace is applied, but the controller only
 acts on the stamped reference.
 
-Namespace management always uses an impersonated ServiceAccount and never the
-controller credentials. When `.spec.serviceAccountName` is set, the controller
-impersonates it; otherwise it impersonates the ServiceAccount configured with
-the `--default-service-account` flag. If neither is set, the reconciliation
-fails with a terminal error. Creating and deleting namespaces requires
-cluster-scoped RBAC, so the ServiceAccount must be bound to a `ClusterRole`
-granting the `namespaces` verbs.
+Namespace management always requires a ServiceAccount for authorization. When
+`.spec.serviceAccountName` is set, the controller authorizes the operations
+against it with SubjectAccessReview; otherwise it authorizes them against the
+ServiceAccount configured with the `--default-service-account` flag. If neither
+is set, the reconciliation fails with a terminal error. The controller performs
+the operations with its own credentials. Creating and deleting namespaces
+requires cluster-scoped RBAC, so the ServiceAccount must be bound to a
+`ClusterRole` granting the `namespaces` verbs.
 
 ## Working with ArtifactGenerators
 

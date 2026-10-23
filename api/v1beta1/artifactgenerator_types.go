@@ -84,21 +84,23 @@ type ArtifactGeneratorSpec struct {
 	// +required
 	Sources []SourceReference `json:"sources"`
 
-	// ServiceAccountName is the name of the ServiceAccount used to reconcile
-	// the generated ExternalArtifacts and the managed Namespaces. The
-	// ServiceAccount must exist in the ArtifactGenerator namespace. When
-	// specified, the controller impersonates this ServiceAccount for all
-	// generated ExternalArtifacts, including those in the ArtifactGenerator
-	// namespace, and its RBAC bindings determine the namespaces in which they
-	// can be created, updated and deleted.
+	// ServiceAccountName is the name of the ServiceAccount used to authorize
+	// the reconciliation of the generated ExternalArtifacts and the managed
+	// Namespaces. The name is resolved in the ArtifactGenerator namespace. When
+	// specified, the controller checks this ServiceAccount with
+	// SubjectAccessReview for every namespace targeted by the generated
+	// ExternalArtifacts, including the ArtifactGenerator namespace, and its
+	// RBAC bindings determine the namespaces in which they can be created,
+	// updated and deleted.
 	// When not specified, the controller uses its own credentials for
 	// ExternalArtifacts in the ArtifactGenerator namespace, and the
 	// ServiceAccount configured with the --default-service-account flag
 	// (when set) for artifacts targeting another namespace.
-	// Namespace management (.spec.managedNamespaces) always uses an
-	// impersonated ServiceAccount and never the controller credentials, so
-	// either this field or the --default-service-account flag must be set;
-	// otherwise the reconciliation fails with a terminal error.
+	// Namespace management (.spec.managedNamespaces) always requires a
+	// ServiceAccount for authorization, so either this field or the
+	// --default-service-account flag must be set; otherwise the reconciliation
+	// fails with a terminal error. The controller performs the namespace
+	// operations with its own credentials.
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
