@@ -100,8 +100,7 @@ func (r *ArtifactGeneratorReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// are retryable, as the RBAC bindings may be fixed without changing the
 	// ArtifactGenerator.
 	defer func() {
-		var accessErr *accessDeniedError
-		if errors.As(retErr, &accessErr) {
+		if accessErr, ok := errors.AsType[*accessDeniedError](retErr); ok {
 			gotkconditions.MarkFalse(obj,
 				gotkmeta.ReadyCondition,
 				swapi.AccessDeniedReason,
@@ -763,16 +762,12 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 
 	// Create the ExternalArtifact object.
 	ea := &sourcev1.ExternalArtifact{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: sourcev1.GroupVersion.String(),
-			Kind:       sourcev1.ExternalArtifactKind,
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        outputArtifact.Name,
-			Namespace:   obj.GetArtifactNamespace(outputArtifact),
-			Labels:      labels,
-			Annotations: annotations,
-		},
+		APIVersion:  sourcev1.GroupVersion.String(),
+		Kind:        sourcev1.ExternalArtifactKind,
+		Name:        outputArtifact.Name,
+		Namespace:   obj.GetArtifactNamespace(outputArtifact),
+		Labels:      labels,
+		Annotations: annotations,
 		Spec: sourcev1.ExternalArtifactSpec{
 			SourceRef: &gotkmeta.NamespacedObjectKindReference{
 				APIVersion: swapi.GroupVersion.String(),
@@ -824,9 +819,7 @@ func (r *ArtifactGeneratorReconciler) reconcileExternalArtifact(ctx context.Cont
 		ExportedInputs: exportedInputs,
 	}
 	statusOpts := &client.SubResourcePatchOptions{
-		PatchOptions: client.PatchOptions{
-			FieldManager: r.ControllerName,
-		},
+		FieldManager: r.ControllerName,
 	}
 	if err := auth.ensureExternalArtifactVerb(ctx, namespace, "patch", "status"); err != nil {
 		return nil, nil, err

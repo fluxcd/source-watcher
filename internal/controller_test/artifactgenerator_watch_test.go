@@ -61,14 +61,10 @@ func TestArtifactGenerator_Watch(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 
 	obj := &swapi.ArtifactGenerator{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       swapi.ArtifactGeneratorKind,
-			APIVersion: swapi.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objKey.Name,
-			Namespace: objKey.Namespace,
-		},
+		Kind:       swapi.ArtifactGeneratorKind,
+		APIVersion: swapi.GroupVersion.String(),
+		Name:       objKey.Name,
+		Namespace:  objKey.Namespace,
 		Spec: swapi.ArtifactGeneratorSpec{
 			Sources: []swapi.SourceReference{
 				{
@@ -183,14 +179,10 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotkte
 	}
 
 	repo := &sourcev1.OCIRepository{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       sourcev1.OCIRepositoryKind,
-			APIVersion: sourcev1.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objKey.Name,
-			Namespace: objKey.Namespace,
-		},
+		Kind:       sourcev1.OCIRepositoryKind,
+		APIVersion: sourcev1.GroupVersion.String(),
+		Name:       objKey.Name,
+		Namespace:  objKey.Namespace,
 		Spec: sourcev1.OCIRepositorySpec{
 			URL:      "oci://ghcr.io/test/repository",
 			Interval: &metav1.Duration{Duration: time.Minute},
@@ -232,9 +224,7 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotkte
 	repo.Status = status
 
 	statusOpts := &client.SubResourcePatchOptions{
-		PatchOptions: client.PatchOptions{
-			FieldManager: "source-controller",
-		},
+		FieldManager: "source-controller",
 	}
 
 	return testClient.Status().Patch(context.Background(), repo, client.Apply, statusOpts)

@@ -77,7 +77,7 @@ func TestNamespaceMetadata(t *testing.T) {
 	r := &ArtifactGeneratorReconciler{ControllerName: "source-watcher"}
 
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "flux-system", UID: "uid"},
+		Namespace: "flux-system", UID: "uid",
 		Spec: swapi.ArtifactGeneratorSpec{
 			CommonMetadata: &swapi.CommonMetadata{
 				Labels:      map[string]string{"common": "base", "team": "platform"},
@@ -442,7 +442,7 @@ func TestArtifactGeneratorReconciler_ServiceAccountSameNamespaceDenied(t *testin
 	// The ServiceAccount exists but has no RBAC bindings.
 	saName := "test-agns-same-deny-sa"
 	g.Expect(testClient.Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: saName, Namespace: srcNS.Name},
+		Name: saName, Namespace: srcNS.Name,
 	})).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns-same-deny", Namespace: srcNS.Name}
@@ -624,16 +624,12 @@ func TestArtifactGeneratorReconciler_OwnershipConflict(t *testing.T) {
 	// different ArtifactGenerator.
 	for _, name := range eaNames {
 		otherEA := &sourcev1.ExternalArtifact{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: sourcev1.GroupVersion.String(),
-				Kind:       sourcev1.ExternalArtifactKind,
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: tgtNS.Name,
-				Labels: map[string]string{
-					swapi.ArtifactGeneratorLabel: "11111111-1111-1111-1111-111111111111",
-				},
+			APIVersion: sourcev1.GroupVersion.String(),
+			Kind:       sourcev1.ExternalArtifactKind,
+			Name:       name,
+			Namespace:  tgtNS.Name,
+			Labels: map[string]string{
+				swapi.ArtifactGeneratorLabel: "11111111-1111-1111-1111-111111111111",
 			},
 			Spec: sourcev1.ExternalArtifactSpec{
 				SourceRef: &gotkmeta.NamespacedObjectKindReference{
@@ -708,7 +704,7 @@ func TestArtifactGeneratorReconciler_CrossNamespaceAccessDenied(t *testing.T) {
 	// The ServiceAccount exists but has no RBAC bindings in the target namespace.
 	saName := "artifact-generator-denied"
 	g.Expect(testClient.Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: saName, Namespace: srcNS.Name},
+		Name: saName, Namespace: srcNS.Name,
 	})).To(Succeed())
 
 	objKey := client.ObjectKey{Name: "test-agns-deny", Namespace: srcNS.Name}
@@ -1015,11 +1011,9 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesTakeover(t *testing.T) {
 
 	// Pre-create the namespace owned by another ArtifactGenerator.
 	other := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: tgtName,
-			Labels: map[string]string{
-				swapi.ArtifactGeneratorLabel: "11111111-1111-1111-1111-111111111111",
-			},
+		Name: tgtName,
+		Labels: map[string]string{
+			swapi.ArtifactGeneratorLabel: "11111111-1111-1111-1111-111111111111",
 		},
 	}
 	g.Expect(testClient.Create(ctx, other)).To(Succeed())
@@ -1716,7 +1710,7 @@ func TestArtifactGeneratorReconciler_FinalizeServiceAccountMissing(t *testing.T)
 	// Remove the ServiceAccount to simulate a tenant offboarded before its
 	// ArtifactGenerator.
 	g.Expect(testClient.Delete(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: saName, Namespace: srcNS.Name},
+		Name: saName, Namespace: srcNS.Name,
 	})).To(Succeed())
 
 	// The ArtifactGenerator is deleted even though the managed objects cannot
@@ -1739,7 +1733,7 @@ func grantNamespaceManagement(ctx context.Context, saName, saNamespace string, v
 		verbs = []string{"get", "list", "watch", "create", "update", "patch", "delete"}
 	}
 	role := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: saName},
+		Name: saName,
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{""},
@@ -1763,7 +1757,7 @@ func grantNamespaceManagement(ctx context.Context, saName, saNamespace string, v
 	}
 
 	binding := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: saName},
+		Name: saName,
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      rbacv1.ServiceAccountKind,
@@ -1784,10 +1778,8 @@ func grantNamespaceManagement(ctx context.Context, saName, saNamespace string, v
 // it permission to manage ExternalArtifacts in the given target namespaces.
 func createServiceAccountRBAC(ctx context.Context, saName, saNamespace string, targetNamespaces ...string) error {
 	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
+		Name:      saName,
+		Namespace: saNamespace,
 	}
 	if err := testClient.Create(ctx, sa); err != nil {
 		return err
@@ -1805,10 +1797,8 @@ func createServiceAccountRBAC(ctx context.Context, saName, saNamespace string, t
 // permission to manage ExternalArtifacts in the target namespace.
 func grantExternalArtifactAccessInNamespace(ctx context.Context, saName, saNamespace, targetNamespace string) error {
 	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: targetNamespace,
-		},
+		Name:      saName,
+		Namespace: targetNamespace,
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{sourcev1.GroupVersion.Group},
@@ -1827,10 +1817,8 @@ func grantExternalArtifactAccessInNamespace(ctx context.Context, saName, saNames
 	}
 
 	binding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: targetNamespace,
-		},
+		Name:      saName,
+		Namespace: targetNamespace,
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      rbacv1.ServiceAccountKind,
@@ -1928,7 +1916,7 @@ func TestValidateManagedNamespaces(t *testing.T) {
 	reqs := func(namespaces ...string) []artifactRequest {
 		out := make([]artifactRequest, 0, len(namespaces))
 		for _, ns := range namespaces {
-			out = append(out, artifactRequest{OutputArtifact: swapi.OutputArtifact{Name: "app", Namespace: ns}})
+			out = append(out, artifactRequest{Name: "app", Namespace: ns})
 		}
 		return out
 	}
@@ -1936,7 +1924,7 @@ func TestValidateManagedNamespaces(t *testing.T) {
 	t.Run("allows a matching namespace", func(t *testing.T) {
 		g := NewWithT(t)
 		r := &ArtifactGeneratorReconciler{}
-		obj := &swapi.ArtifactGenerator{ObjectMeta: metav1.ObjectMeta{Namespace: "gen"}}
+		obj := &swapi.ArtifactGenerator{Namespace: "gen"}
 		err := r.validateManagedNamespaces(ctx, obj, reqs("tenant-a"), newPolicies(t, "ns.startsWith('tenant-')"))
 		g.Expect(err).ToNot(HaveOccurred())
 	})
@@ -1944,7 +1932,7 @@ func TestValidateManagedNamespaces(t *testing.T) {
 	t.Run("rejects a namespace that does not match", func(t *testing.T) {
 		g := NewWithT(t)
 		r := &ArtifactGeneratorReconciler{}
-		obj := &swapi.ArtifactGenerator{ObjectMeta: metav1.ObjectMeta{Namespace: "gen"}}
+		obj := &swapi.ArtifactGenerator{Namespace: "gen"}
 		err := r.validateManagedNamespaces(ctx, obj, reqs("othera"), newPolicies(t, "ns.startsWith('tenant-')"))
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("allowedNames"))
@@ -1954,7 +1942,7 @@ func TestValidateManagedNamespaces(t *testing.T) {
 		for _, denied := range []string{"default", "kube-system", "kube-public", "flux-system"} {
 			g := NewWithT(t)
 			r := &ArtifactGeneratorReconciler{}
-			obj := &swapi.ArtifactGenerator{ObjectMeta: metav1.ObjectMeta{Namespace: "gen"}}
+			obj := &swapi.ArtifactGenerator{Namespace: "gen"}
 			err := r.validateManagedNamespaces(ctx, obj, reqs(denied), newPolicies(t, "true"))
 			g.Expect(err).To(HaveOccurred(), denied)
 		}
@@ -1963,7 +1951,7 @@ func TestValidateManagedNamespaces(t *testing.T) {
 	t.Run("skips empty and generator namespace", func(t *testing.T) {
 		g := NewWithT(t)
 		r := &ArtifactGeneratorReconciler{}
-		obj := &swapi.ArtifactGenerator{ObjectMeta: metav1.ObjectMeta{Namespace: "gen"}}
+		obj := &swapi.ArtifactGenerator{Namespace: "gen"}
 		err := r.validateManagedNamespaces(ctx, obj, reqs("", "gen"), newPolicies(t, "false"))
 		g.Expect(err).ToNot(HaveOccurred())
 	})
@@ -1972,7 +1960,7 @@ func TestValidateManagedNamespaces(t *testing.T) {
 func TestValidateNamespaceMetadataPaths(t *testing.T) {
 	newObj := func(path string) *swapi.ArtifactGenerator {
 		return &swapi.ArtifactGenerator{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "gen"},
+			Namespace: "gen",
 			Spec: swapi.ArtifactGeneratorSpec{
 				ManagedNamespaces: &swapi.ManagedNamespaces{
 					AllowedNames: []string{"true"},
@@ -1985,14 +1973,14 @@ func TestValidateNamespaceMetadataPaths(t *testing.T) {
 	}
 	req := func(namespace string, captures map[string]string) artifactRequest {
 		return artifactRequest{
-			OutputArtifact: swapi.OutputArtifact{Name: "app", Namespace: namespace},
-			Captures:       captures,
+			Name: "app", Namespace: namespace,
+			Captures: captures,
 		}
 	}
 
 	t.Run("ignores artifacts without sourced metadata", func(t *testing.T) {
 		g := NewWithT(t)
-		obj := &swapi.ArtifactGenerator{ObjectMeta: metav1.ObjectMeta{Namespace: "gen"}}
+		obj := &swapi.ArtifactGenerator{Namespace: "gen"}
 		err := validateNamespaceMetadataPaths(obj, []artifactRequest{
 			req("tenant-a", map[string]string{"module": "a"}),
 			req("tenant-a", map[string]string{"module": "b"}),
@@ -2295,11 +2283,9 @@ func TestArtifactGeneratorReconciler_ExternalArtifactAdopted(t *testing.T) {
 
 	// Pre-create the ExternalArtifact without an owner.
 	unmanagedEA := &sourcev1.ExternalArtifact{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: sourcev1.GroupVersion.String(),
-			Kind:       sourcev1.ExternalArtifactKind,
-		},
-		ObjectMeta: metav1.ObjectMeta{Name: eaName, Namespace: tgtNS.Name},
+		APIVersion: sourcev1.GroupVersion.String(),
+		Kind:       sourcev1.ExternalArtifactKind,
+		Name:       eaName, Namespace: tgtNS.Name,
 	}
 	g.Expect(testClient.Create(ctx, unmanagedEA)).To(Succeed())
 
