@@ -258,13 +258,13 @@ func renderArtifactRequest(oa swapi.OutputArtifact, normalizedCaptures, rawCaptu
 		return artifactRequest{}, err
 	}
 
+	oa.Name = name
+	oa.Namespace = namespace
 	req := artifactRequest{
 		OutputArtifact: oa,
 		Labels:         normalizedCaptures,
 		Captures:       rawCaptures,
 	}
-	req.Name = name
-	req.Namespace = namespace
 
 	// Substitute capture placeholders in the inputs source path.
 	if oa.InputsFrom != "" {
