@@ -23,7 +23,6 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -67,14 +66,10 @@ func TestArtifactGeneratorReconciler_DirectSourceFetch(t *testing.T) {
 			Namespace: ns.Name,
 		}
 		obj := &swapi.ArtifactGenerator{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       swapi.ArtifactGeneratorKind,
-				APIVersion: swapi.GroupVersion.String(),
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      objKey.Name,
-				Namespace: objKey.Namespace,
-			},
+			Kind:       swapi.ArtifactGeneratorKind,
+			APIVersion: swapi.GroupVersion.String(),
+			Name:       objKey.Name,
+			Namespace:  objKey.Namespace,
 			Spec: swapi.ArtifactGeneratorSpec{
 				Sources: []swapi.SourceReference{
 					{

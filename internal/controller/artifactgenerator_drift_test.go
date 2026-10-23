@@ -75,10 +75,8 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 
 	// Generate the ExternalArtifact in cluster
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-generator",
-			Namespace: ns.Name,
-		},
+		Name:      "test-generator",
+		Namespace: ns.Name,
 	}
 	auth := newAccessChecker(nil, obj, "")
 	_, _, err = reconciler.reconcileExternalArtifact(ctx, obj, outputArtifact, artifact, nil, nil, auth)
@@ -95,11 +93,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		{
 			name: "no drift when everything matches",
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-generator",
-					Namespace:  ns.Name,
-					Generation: 1,
-				},
+				Name:       "test-generator",
+				Namespace:  ns.Name,
+				Generation: 1,
 				Spec: swapi.ArtifactGeneratorSpec{
 					Sources: []swapi.SourceReference{
 						{Alias: "test", Kind: sourcev1.GitRepositoryKind, Name: "test-repo"},
@@ -133,11 +129,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		{
 			name: "drift detected when object is not ready",
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-generator",
-					Namespace:  ns.Name,
-					Generation: 1,
-				},
+				Name:       "test-generator",
+				Namespace:  ns.Name,
+				Generation: 1,
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
@@ -181,11 +175,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		{
 			name: "drift detected when sources digest changed",
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-generator",
-					Namespace:  ns.Name,
-					Generation: 1,
-				},
+				Name:       "test-generator",
+				Namespace:  ns.Name,
+				Generation: 1,
 				Status: swapi.ArtifactGeneratorStatus{
 					Conditions: []metav1.Condition{
 						{
@@ -205,11 +197,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		{
 			name: "drift detected when number of output artifacts changed",
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-generator",
-					Namespace:  ns.Name,
-					Generation: 1,
-				},
+				Name:       "test-generator",
+				Namespace:  ns.Name,
+				Generation: 1,
 				Spec: swapi.ArtifactGeneratorSpec{
 					OutputArtifacts: []swapi.OutputArtifact{
 						{Name: "artifact-1"},
@@ -244,11 +234,9 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		{
 			name: "drift detected when artifact missing from storage",
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-generator",
-					Namespace:  ns.Name,
-					Generation: 1,
-				},
+				Name:       "test-generator",
+				Namespace:  ns.Name,
+				Generation: 1,
 				Spec: swapi.ArtifactGeneratorSpec{
 					OutputArtifacts: []swapi.OutputArtifact{*outputArtifact},
 				},
@@ -281,19 +269,15 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 			setupFunc: func() {
 				// Delete the in cluster artifact
 				err = testEnv.Cleanup(ctx, &sourcev1.ExternalArtifact{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-artifact",
-						Namespace: ns.Name,
-					},
+					Name:      "test-artifact",
+					Namespace: ns.Name,
 				})
 				g.Expect(err).ToNot(HaveOccurred())
 			},
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-generator",
-					Namespace:  ns.Name,
-					Generation: 1,
-				},
+				Name:       "test-generator",
+				Namespace:  ns.Name,
+				Generation: 1,
 				Spec: swapi.ArtifactGeneratorSpec{
 					Sources: []swapi.SourceReference{
 						{Alias: "test", Kind: sourcev1.GitRepositoryKind, Name: "test-repo"},
@@ -327,12 +311,10 @@ func TestArtifactGeneratorReconciler_DetectDrift(t *testing.T) {
 		{
 			name: "no drift when pathPattern inventory count differs from templates",
 			obj: &swapi.ArtifactGenerator{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "path-pattern-generator",
-					Namespace:  ns.Name,
-					UID:        "path-pattern-generator",
-					Generation: 1,
-				},
+				Name:       "path-pattern-generator",
+				Namespace:  ns.Name,
+				UID:        "path-pattern-generator",
+				Generation: 1,
 				Spec: swapi.ArtifactGeneratorSpec{
 					PathPattern: "@test/apps/{app}/envs/{env}",
 					OutputArtifacts: []swapi.OutputArtifact{
