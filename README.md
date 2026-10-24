@@ -2,7 +2,6 @@
 
 [![fossa](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Ffluxcd%2Fsource-watcher.svg?type=small)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Ffluxcd%2Fsource-watcher?ref=badge_small)
 [![test](https://github.com/fluxcd/source-watcher/workflows/e2e/badge.svg)](https://github.com/fluxcd/source-watcher/actions)
-[![report](https://goreportcard.com/badge/github.com/fluxcd/source-watcher)](https://goreportcard.com/report/github.com/fluxcd/source-watcher)
 [![license](https://img.shields.io/github/license/fluxcd/source-watcher.svg)](https://github.com/fluxcd/source-watcher/blob/main/LICENSE)
 [![release](https://img.shields.io/github/release/fluxcd/source-watcher/all.svg)](https://github.com/fluxcd/source-watcher/releases)
 
