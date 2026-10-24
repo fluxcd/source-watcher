@@ -2,6 +2,97 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.3.0
+
+**Release date:** 2026-10-24
+
+This minor release introduces SPIFFE mTLS between the controllers, tenant
+namespace provisioning with ArtifactGenerator, and cross-namespace artifact
+generation.
+
+### Inter-Controller mTLS
+
+This release introduces SPIFFE mTLS for inter-controller communication. Flux
+controllers authenticate each other with X.509-SVIDs, and each traffic type is
+enabled independently by configuring the SPIFFE Workload API socket and the
+SPIFFE IDs that the controller authorizes. See the
+[inter-controller mTLS documentation](https://fluxcd.io/flux/installation/configuration/intercontroller-mtls/)
+for the controller flags and an example configuration.
+
+### ArtifactGenerator
+
+Generated artifacts can target other namespaces through the new
+`.spec.artifacts[].namespace` field. The new `.spec.serviceAccountName` field
+selects the ServiceAccount used to authorize reconciling the output artifacts in
+the target namespaces; when unset, `--default-service-account` supplies the
+default. The controller verifies the ServiceAccount authorization with a
+SubjectAccessReview for each target namespace.
+
+Namespace management is opt-in with the new `.spec.managedNamespaces` field:
+`allowedNames` is a list of CEL expressions bounding which namespaces may be
+managed, `prune` controls deletion of namespaces that are no longer targeted,
+and `metadata` defines their labels and annotations. The
+`source.extensions.fluxcd.io/ssa`, `/prune` and `/externalFinalizer` annotations
+tune the lifecycle of individual Namespace objects. At least one of
+`--default-service-account` or `.spec.serviceAccountName` must be set.
+
+Namespace management requires cluster-scoped RBAC that the controller does not
+have by default. Because the controller performs the operations with its own
+credentials, the `flux-system/source-watcher` ServiceAccount must be granted
+`get`, `create`, `patch` and `delete` on `namespaces`:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: source-watcher-namespace-management
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "create", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: source-watcher-namespace-management
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: source-watcher-namespace-management
+subjects:
+  - kind: ServiceAccount
+    name: source-watcher
+    namespace: flux-system
+```
+
+Copy operations accept an `optional` flag, so a copy that matches no files can
+be skipped instead of failing the reconciliation.
+
+A new annotation in the ArtifactGenerator was introduced to set the reconcile
+interval: `source.extensions.fluxcd.io/reconcileEvery`.
+
+### General updates
+
+The controller is built with Kubernetes 1.37 and Go 1.27.
+
+Improvements:
+- Add an optional flag to copy operations
+  [#371](https://github.com/fluxcd/source-watcher/pull/371)
+- Generate cross-namespace artifacts
+  [#387](https://github.com/fluxcd/source-watcher/pull/387)
+- Add tenant namespace provisioning for ResourceSets
+  [#392](https://github.com/fluxcd/source-watcher/pull/392)
+- Replace impersonation with SubjectAccessReview
+  [#402](https://github.com/fluxcd/source-watcher/pull/402)
+- Add SPIFFE mTLS between the controllers
+  [#399](https://github.com/fluxcd/source-watcher/pull/399)
+- Update to Kubernetes 1.37 and Go 1.27
+  [#381](https://github.com/fluxcd/source-watcher/pull/381)
+  [#397](https://github.com/fluxcd/source-watcher/pull/397)
+- Various dependency updates
+  [#362](https://github.com/fluxcd/source-watcher/pull/362)
+  [#404](https://github.com/fluxcd/source-watcher/pull/404)
+
 ## 2.2.4
 
 **Release date:** 2026-08-31
