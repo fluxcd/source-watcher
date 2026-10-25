@@ -75,8 +75,8 @@ github.com/fluxcd/pkg/apis/meta v1.38.0 h1:7t6/DuGFAPx2LE4MsRh1jskjnVE6qELKfr/Lr
 github.com/fluxcd/pkg/apis/meta v1.38.0/go.mod h1:lmdugeiZyt6w+DRm8ypkB+nwrzm+saMbqSfZKGBbTOE=
 github.com/fluxcd/pkg/artifact v0.27.0 h1:dbZ6JfSUlyQn7SyseDQgK5RvD4xaxsVKff7pb00UIaM=
 github.com/fluxcd/pkg/artifact v0.27.0/go.mod h1:h4bURFRXHpl6ASHRgjqyPQJg4mh+8iQVMgM4Nyk1geM=
-github.com/fluxcd/pkg/http/fetch v0.30.0 h1:U7MtGmQ2HPXgM3fK5ZIoSPyV31LnuW95fo7m9OnkoNM=
-github.com/fluxcd/pkg/http/fetch v0.30.0/go.mod h1:lLSi5hGRK5cUBGKwG3novWYOZKen2NrvgPhYcOTIjAk=
+github.com/fluxcd/pkg/http/fetch v0.31.0 h1:mMwRxL2BKVMTkrzI6DarP65ghg3zWarAoeUMOwQ+Hzw=
+github.com/fluxcd/pkg/http/fetch v0.31.0/go.mod h1:lLSi5hGRK5cUBGKwG3novWYOZKen2NrvgPhYcOTIjAk=
 github.com/fluxcd/pkg/lockedfile v0.9.0 h1:bjm/kUjYpdMBBz/5Hw0nTSLwsZwrithTrH8gMyZjbzI=
 github.com/fluxcd/pkg/lockedfile v0.9.0/go.mod h1:xtSyl0R6g01ItVGOTRqzjPZTXqFwCvkQTuWA52oudQg=
 github.com/fluxcd/pkg/oci v0.73.0 h1:3A3jJEpQdR+dgCXDGwmKFYRfx10lvDJPrwHSm4lvbsQ=
