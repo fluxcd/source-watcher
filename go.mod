@@ -13,7 +13,7 @@ require (
 	github.com/fluxcd/pkg/apis/event v0.32.0
 	github.com/fluxcd/pkg/apis/meta v1.38.0
 	github.com/fluxcd/pkg/artifact v0.27.0
-	github.com/fluxcd/pkg/http/fetch v0.30.0
+	github.com/fluxcd/pkg/http/fetch v0.30.1
 	github.com/fluxcd/pkg/runtime v0.122.0
 	github.com/fluxcd/pkg/spiffe v0.2.0
 	github.com/fluxcd/pkg/ssa v0.83.0
