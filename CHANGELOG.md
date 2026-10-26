@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.3.1
+
+**Release date:** 2026-10-26
+
+This patch release hardens the controller's artifact server by setting a read
+header timeout, which also bounds the TLS handshake, and an idle timeout. As a
+result, connections that never send a request, or keep-alive connections from
+clients without an idle timeout, no longer stay open until the server shuts
+down. No timeout is set for reading or writing the whole request, so large
+artifacts can still be downloaded by slow clients.
+
+Improvements:
+- Update fluxcd/pkg dependencies
+  [#415](https://github.com/fluxcd/source-watcher/pull/415)
+  [#416](https://github.com/fluxcd/source-watcher/pull/416)
+
 ## 2.3.0
 
 **Release date:** 2026-10-24
