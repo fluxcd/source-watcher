@@ -44,7 +44,7 @@ all: manager
 
 # Run tests
 KUBEBUILDER_ASSETS?="$(shell $(ENVTEST) --arch=$(ENVTEST_ARCH) use -i $(ENVTEST_KUBERNETES_VERSION) --bin-dir=$(ENVTEST_ASSETS_DIR) -p path)"
-test: tidy generate fmt vet manifests install-envtest download-crd-deps
+test: tidy generate fix fmt vet manifests install-envtest download-crd-deps
 	KUBEBUILDER_ASSETS=$(KUBEBUILDER_ASSETS) go test ./... $(GO_TEST_ARGS) -coverprofile cover.out
 
 # Build manager binary
@@ -114,6 +114,12 @@ dev-deploy: manifests
 tidy:
 	cd api; rm -f go.sum; go mod tidy -compat=1.27
 	rm -f go.sum; go mod tidy -compat=1.27
+
+# Run go fix against code
+.PHONY: fix
+fix:
+	cd api; go fix ./...
+	go fix ./...
 
 # Run go fmt against code
 fmt:
