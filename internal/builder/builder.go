@@ -488,7 +488,7 @@ func copyFileWithRoots(ctx context.Context,
 	}
 
 	if srcInfo.IsDir() {
-		return copyDirWithRoots(ctx, srcRoot, srcPath, stagingRoot, destPath, op.Exclude, excludeBasePath)
+		return copyDirWithRoots(ctx, op, srcRoot, srcPath, stagingRoot, destPath, op.Exclude, excludeBasePath)
 	}
 
 	if shouldMergeFile(op, stagingRoot, destPath) {
@@ -593,6 +593,7 @@ func mergeFileWithRoots(ctx context.Context,
 // copyDirWithRoots copies a directory recursively using os.Root,
 // skipping files and sub-dirs matching exclude patterns.
 func copyDirWithRoots(ctx context.Context,
+	op swapi.CopyOperation,
 	srcRoot *os.Root,
 	srcPath string,
 	stagingRoot *os.Root,
@@ -633,6 +634,10 @@ func copyDirWithRoots(ctx context.Context,
 
 		if d.IsDir() {
 			return createDirRecursive(stagingRoot, destFilePath)
+		}
+
+		if shouldMergeFile(op, stagingRoot, destFilePath) {
+			return mergeFileWithRoots(ctx, srcRoot, path, stagingRoot, destFilePath)
 		}
 
 		return copyRegularFileWithRoots(ctx, srcRoot, path, stagingRoot, destFilePath)
