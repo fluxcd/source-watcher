@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -138,10 +137,8 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Conte
 
 	// Delete from cluster.
 	ea := &sourcev1.ExternalArtifact{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ref.Name,
-			Namespace: ref.Namespace,
-		},
+		Name:      ref.Name,
+		Namespace: ref.Namespace,
 	}
 	if err := r.Client.Delete(ctx, ea); err != nil && !apierrors.IsNotFound(err) {
 		retErr = errors.Join(retErr, fmt.Errorf("failed to delete ExternalArtifact: %w", err))

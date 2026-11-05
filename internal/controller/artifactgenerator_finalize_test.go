@@ -25,7 +25,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -102,7 +101,7 @@ func TestArtifactGeneratorReconciler_FinalizeReferencesSurvivors(t *testing.T) {
 	// already deleted.
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "tenant", errors.New("forbidden"))
 	kubeClient := fake.NewClientBuilder().
-		WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant"}}).
+		WithObjects(&corev1.Namespace{Name: "tenant"}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
 				return forbidden
@@ -116,7 +115,7 @@ func TestArtifactGeneratorReconciler_FinalizeReferencesSurvivors(t *testing.T) {
 	}
 
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "src", UID: "uid"},
+		Name: "test", Namespace: "src", UID: "uid",
 		Spec: swapi.ArtifactGeneratorSpec{
 			ServiceAccountName: "sa",
 			ManagedNamespaces: &swapi.ManagedNamespaces{

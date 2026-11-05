@@ -324,14 +324,10 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				}
 
 				generator := &swapi.ArtifactGenerator{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       swapi.ArtifactGeneratorKind,
-						APIVersion: swapi.GroupVersion.String(),
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      objKey.Name,
-						Namespace: objKey.Namespace,
-					},
+					Kind:       swapi.ArtifactGeneratorKind,
+					APIVersion: swapi.GroupVersion.String(),
+					Name:       objKey.Name,
+					Namespace:  objKey.Namespace,
 					Spec: swapi.ArtifactGeneratorSpec{
 						Sources: []swapi.SourceReference{
 							{
@@ -350,10 +346,10 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 
 				cleanup := func() {
 					testClient.Delete(context.Background(), &sourcev1.GitRepository{
-						ObjectMeta: metav1.ObjectMeta{Name: gitKey.Name, Namespace: gitKey.Namespace},
+						Name: gitKey.Name, Namespace: gitKey.Namespace,
 					})
 					testClient.Delete(context.Background(), &sourcev1.OCIRepository{
-						ObjectMeta: metav1.ObjectMeta{Name: ociKey.Name, Namespace: ociKey.Namespace},
+						Name: ociKey.Name, Namespace: ociKey.Namespace,
 					})
 				}
 
@@ -370,14 +366,10 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				objKey := client.ObjectKey{Name: "test-generator", Namespace: "default"}
 
 				generator := &swapi.ArtifactGenerator{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       swapi.ArtifactGeneratorKind,
-						APIVersion: swapi.GroupVersion.String(),
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      objKey.Name,
-						Namespace: objKey.Namespace,
-					},
+					Kind:       swapi.ArtifactGeneratorKind,
+					APIVersion: swapi.GroupVersion.String(),
+					Name:       objKey.Name,
+					Namespace:  objKey.Namespace,
 					Spec: swapi.ArtifactGeneratorSpec{
 						Sources: []swapi.SourceReference{
 							{
@@ -413,14 +405,10 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				}
 
 				generator := &swapi.ArtifactGenerator{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       swapi.ArtifactGeneratorKind,
-						APIVersion: swapi.GroupVersion.String(),
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      objKey.Name,
-						Namespace: objKey.Namespace,
-					},
+					Kind:       swapi.ArtifactGeneratorKind,
+					APIVersion: swapi.GroupVersion.String(),
+					Name:       objKey.Name,
+					Namespace:  objKey.Namespace,
 					Spec: swapi.ArtifactGeneratorSpec{
 						Sources: []swapi.SourceReference{
 							{
@@ -434,7 +422,7 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 
 				cleanup := func() {
 					testClient.Delete(context.Background(), &sourcev1.GitRepository{
-						ObjectMeta: metav1.ObjectMeta{Name: gitKey.Name, Namespace: gitKey.Namespace},
+						Name: gitKey.Name, Namespace: gitKey.Namespace,
 					})
 				}
 
@@ -458,14 +446,10 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 				}
 
 				generator := &swapi.ArtifactGenerator{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       swapi.ArtifactGeneratorKind,
-						APIVersion: swapi.GroupVersion.String(),
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      objKey.Name,
-						Namespace: objKey.Namespace,
-					},
+					Kind:       swapi.ArtifactGeneratorKind,
+					APIVersion: swapi.GroupVersion.String(),
+					Name:       objKey.Name,
+					Namespace:  objKey.Namespace,
 					Spec: swapi.ArtifactGeneratorSpec{
 						Sources: []swapi.SourceReference{
 							{
@@ -480,7 +464,7 @@ func TestArtifactGeneratorReconciler_fetchSources(t *testing.T) {
 
 				cleanup := func() {
 					testClient.Delete(context.Background(), &sourcev1.GitRepository{
-						ObjectMeta: metav1.ObjectMeta{Name: gitKey.Name, Namespace: gitKey.Namespace},
+						Name: gitKey.Name, Namespace: gitKey.Namespace,
 					})
 				}
 
@@ -713,14 +697,10 @@ func getArtifactGeneratorReconciler() *ArtifactGeneratorReconciler {
 
 func getArtifactGenerator(objectKey client.ObjectKey) *swapi.ArtifactGenerator {
 	return &swapi.ArtifactGenerator{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       swapi.ArtifactGeneratorKind,
-			APIVersion: swapi.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectKey.Name,
-			Namespace: objectKey.Namespace,
-		},
+		Kind:       swapi.ArtifactGeneratorKind,
+		APIVersion: swapi.GroupVersion.String(),
+		Name:       objectKey.Name,
+		Namespace:  objectKey.Namespace,
 		Spec: swapi.ArtifactGeneratorSpec{
 			Sources: []swapi.SourceReference{
 				{
@@ -766,14 +746,10 @@ func applyGitRepository(objKey client.ObjectKey, revision string, files []gotkte
 	}
 
 	repo := &sourcev1.GitRepository{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       sourcev1.GitRepositoryKind,
-			APIVersion: sourcev1.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objKey.Name,
-			Namespace: objKey.Namespace,
-		},
+		Kind:       sourcev1.GitRepositoryKind,
+		APIVersion: sourcev1.GroupVersion.String(),
+		Name:       objKey.Name,
+		Namespace:  objKey.Namespace,
 		Spec: sourcev1.GitRepositorySpec{
 			URL:      "https://github.com/test/repository",
 			Interval: metav1.Duration{Duration: time.Minute},
@@ -816,9 +792,7 @@ func applyGitRepository(objKey client.ObjectKey, revision string, files []gotkte
 	repo.Status = status
 
 	statusOpts := &client.SubResourcePatchOptions{
-		PatchOptions: client.PatchOptions{
-			FieldManager: "source-controller",
-		},
+		FieldManager: "source-controller",
 	}
 
 	return testClient.Status().Patch(context.Background(), repo, client.Apply, statusOpts)
@@ -831,14 +805,10 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotkte
 	}
 
 	repo := &sourcev1.OCIRepository{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       sourcev1.OCIRepositoryKind,
-			APIVersion: sourcev1.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objKey.Name,
-			Namespace: objKey.Namespace,
-		},
+		Kind:       sourcev1.OCIRepositoryKind,
+		APIVersion: sourcev1.GroupVersion.String(),
+		Name:       objKey.Name,
+		Namespace:  objKey.Namespace,
 		Spec: sourcev1.OCIRepositorySpec{
 			URL:      "oci://ghcr.io/test/repository",
 			Interval: &metav1.Duration{Duration: time.Minute},
@@ -883,9 +853,7 @@ func applyOCIRepository(objKey client.ObjectKey, revision string, files []gotkte
 	repo.Status = status
 
 	statusOpts := &client.SubResourcePatchOptions{
-		PatchOptions: client.PatchOptions{
-			FieldManager: "source-controller",
-		},
+		FieldManager: "source-controller",
 	}
 
 	return testClient.Status().Patch(context.Background(), repo, client.Apply, statusOpts)
@@ -1102,7 +1070,7 @@ func TestAccessCheckerServiceAccountSelection(t *testing.T) {
 	g := NewWithT(t)
 
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
+		Name: "test", Namespace: "flux-system",
 	}
 	checker := newAccessChecker(nil, obj, "default-sa")
 

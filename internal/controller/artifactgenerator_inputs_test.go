@@ -24,7 +24,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -151,7 +150,7 @@ metadata:
 
 	r := &ArtifactGeneratorReconciler{ControllerName: controllerName}
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "flux-system", UID: "uid"},
+		Namespace: "flux-system", UID: "uid",
 		Spec: swapi.ArtifactGeneratorSpec{
 			CommonMetadata: &swapi.CommonMetadata{
 				Labels: map[string]string{"common": "base"},
