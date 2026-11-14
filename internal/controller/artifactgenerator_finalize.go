@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -98,14 +97,14 @@ func (r *ArtifactGeneratorReconciler) finalizeReferences(ctx context.Context,
 				log.Info("Skipping managed namespace deletion, no ServiceAccount configured", "namespace", ref.Name)
 				continue
 			}
-			if err := r.deleteNamespace(ctx, obj, ref.Name, auth); err != nil {
+			if err := r.deleteNamespace(ctx, ref.Name, auth); err != nil {
 				log.Error(err, "Failed to delete Namespace, will retry", "namespace", ref.Name)
 				survivors = append(survivors, ref)
 			}
 			continue
 		}
 
-		if err := r.finalizeExternalArtifact(ctx, obj, ref, auth); err != nil {
+		if err := r.finalizeExternalArtifact(ctx, ref, auth); err != nil {
 			log.Error(err, "Failed to delete ExternalArtifact, will retry",
 				"artifact", fmt.Sprintf("%s/%s/%s", sourcev1.ExternalArtifactKind, ref.Namespace, ref.Name))
 			survivors = append(survivors, ref)
@@ -117,10 +116,7 @@ func (r *ArtifactGeneratorReconciler) finalizeReferences(ctx context.Context,
 // finalizeExternalArtifact deletes the ExternalArtifact referenced in the
 // provided entry, along with its associated artifact in the storage backend.
 // It returns an error when the deletion was not confirmed by the API server.
-func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Context,
-	obj *swapi.ArtifactGenerator,
-	ref swapi.InventoryEntry,
-	auth *accessChecker) error {
+func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Context, ref swapi.InventoryEntry, auth *accessChecker) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if err := auth.ensureExternalArtifactVerb(ctx, ref.Namespace, "delete", ""); err != nil {
@@ -138,10 +134,8 @@ func (r *ArtifactGeneratorReconciler) finalizeExternalArtifact(ctx context.Conte
 
 	// Delete from cluster.
 	ea := &sourcev1.ExternalArtifact{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ref.Name,
-			Namespace: ref.Namespace,
-		},
+		Name:      ref.Name,
+		Namespace: ref.Namespace,
 	}
 	if err := r.Client.Delete(ctx, ea); err != nil && !apierrors.IsNotFound(err) {
 		retErr = errors.Join(retErr, fmt.Errorf("failed to delete ExternalArtifact: %w", err))

@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,10 +43,7 @@ var errFileTooLarge = errors.New("file exceeds the maximum size")
 // loadExportedInputs reads, parses and returns the structured inputs
 // referenced by .spec.artifacts[].inputsFrom, for publication in the
 // ExternalArtifact .status.exportedInputs field.
-func (r *ArtifactGeneratorReconciler) loadExportedInputs(ctx context.Context,
-	oa *swapi.OutputArtifact,
-	sources map[string]string,
-	artifactDir string) (map[string]*apiextensionsv1.JSON, error) {
+func (r *ArtifactGeneratorReconciler) loadExportedInputs(oa *swapi.OutputArtifact, sources map[string]string, artifactDir string) (map[string]*apiextensionsv1.JSON, error) {
 	if oa.InputsFrom == "" {
 		return nil, nil
 	}

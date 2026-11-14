@@ -157,7 +157,7 @@ func (r *ArtifactGeneratorReconciler) namespaceExternallyFinalized(ctx context.C
 // managed namespace. The annotation must be set by an external actor, so that
 // the controller cannot be tricked into handing over a namespace it is still
 // accountable for.
-func validateNamespaceMetadataExternalFinalizer(namespace string, labels, annotations map[string]string) error {
+func validateNamespaceMetadataExternalFinalizer(namespace string, annotations map[string]string) error {
 	if annotations[swapi.ExternalFinalizerAnnotation] == "" {
 		return nil
 	}

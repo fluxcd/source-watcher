@@ -24,7 +24,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -85,26 +84,22 @@ func TestParseExternalFinalizerRef(t *testing.T) {
 func TestValidateNamespaceMetadataExternalFinalizer(t *testing.T) {
 	g := NewWithT(t)
 
-	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", nil, nil)).To(Succeed())
-	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", nil, map[string]string{"owner": "platform"})).To(Succeed())
+	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", nil)).To(Succeed())
+	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", map[string]string{"owner": "platform"})).To(Succeed())
 
-	err := validateNamespaceMetadataExternalFinalizer("tenant", nil, map[string]string{
-		swapi.ExternalFinalizerAnnotation: "fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/uid",
-	})
+	err := validateNamespaceMetadataExternalFinalizer("tenant", map[string]string{swapi.ExternalFinalizerAnnotation: "fluxcd.controlplane.io/v1/ResourceSet/flux-system/tenants/uid"})
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring(swapi.ExternalFinalizerAnnotation))
 
 	// An empty value does not hand over the finalization and is ignored.
-	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", nil, map[string]string{
-		swapi.ExternalFinalizerAnnotation: "",
-	})).To(Succeed())
+	g.Expect(validateNamespaceMetadataExternalFinalizer("tenant", map[string]string{swapi.ExternalFinalizerAnnotation: ""})).To(Succeed())
 }
 
 func TestNamespaceExternallyFinalized(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant"}}
+	ns := &corev1.Namespace{Name: "tenant"}
 	kubeClient := fake.NewClientBuilder().WithScheme(NewTestScheme()).WithObjects(ns).Build()
 	r := &ArtifactGeneratorReconciler{
 		Client:   kubeClient,
@@ -192,7 +187,7 @@ func TestArtifactGeneratorReconciler_ManagedNamespacesExternalFinalizer(t *testi
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// The external finalizer object, standing in for the ResourceSet.
-	fin := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test-finalizer", Namespace: srcNS.Name}}
+	fin := &corev1.ConfigMap{Name: "test-finalizer", Namespace: srcNS.Name}
 	g.Expect(testClient.Create(ctx, fin)).To(Succeed())
 	g.Expect(testClient.Get(ctx, client.ObjectKeyFromObject(fin), fin)).To(Succeed())
 

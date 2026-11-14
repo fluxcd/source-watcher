@@ -526,7 +526,7 @@ func (r *ArtifactGeneratorReconciler) namespaceMetadata(
 	}
 
 	labels, annotations := r.namespaceMetadataFor(obj, namespace, sourcedLabels, sourcedAnnotations)
-	if err := validateNamespaceMetadataExternalFinalizer(namespace, labels, annotations); err != nil {
+	if err := validateNamespaceMetadataExternalFinalizer(namespace, annotations); err != nil {
 		return nil, nil, newTerminalNamespaceMetadataError("%w", err)
 	}
 	// Validate the resolved metadata before the server-side apply, so that an
@@ -840,10 +840,7 @@ func namespaceIfNotPresent(expectedLabels, expectedAnnotations map[string]string
 // delete exclusion annotations ('prune=disabled', 'reconcile=disabled' or
 // 'ssa=Ignore'). It returns an error when the deletion was not confirmed by
 // the API server.
-func (r *ArtifactGeneratorReconciler) deleteNamespace(ctx context.Context,
-	obj *swapi.ArtifactGenerator,
-	name string,
-	auth *accessChecker) error {
+func (r *ArtifactGeneratorReconciler) deleteNamespace(ctx context.Context, name string, auth *accessChecker) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if err := auth.ensureNamespaceVerb(ctx, "get"); err != nil {

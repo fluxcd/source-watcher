@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	swapi "github.com/fluxcd/source-watcher/api/v2/v1beta1"
 )
@@ -37,10 +36,8 @@ func TestArtifactGenerator_CommonMetadataAnnotations(t *testing.T) {
 
 	newObj := func(name string) *swapi.ArtifactGenerator {
 		return &swapi.ArtifactGenerator{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns.Name,
-			},
+			Name:      name,
+			Namespace: ns.Name,
 			Spec: swapi.ArtifactGeneratorSpec{
 				Sources: []swapi.SourceReference{
 					{

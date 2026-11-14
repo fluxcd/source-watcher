@@ -23,7 +23,6 @@ import (
 
 	. "github.com/onsi/gomega"
 	authzv1 "k8s.io/api/authorization/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -60,7 +59,7 @@ func TestAccessCheckerDeduplicates(t *testing.T) {
 		}).Build()
 
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
+		Name: "test", Namespace: "flux-system",
 	}
 	checker := newAccessChecker(kubeClient, obj, "default-sa")
 
@@ -94,7 +93,7 @@ func TestAccessCheckerSameNamespaceUsesControllerCredentials(t *testing.T) {
 		}).Build()
 
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
+		Name: "test", Namespace: "flux-system",
 	}
 	checker := newAccessChecker(kubeClient, obj, "default-sa")
 
@@ -118,7 +117,7 @@ func TestAccessCheckerDenied(t *testing.T) {
 		}).Build()
 
 	obj := &swapi.ArtifactGenerator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "flux-system"},
+		Name: "test", Namespace: "flux-system",
 	}
 	checker := newAccessChecker(kubeClient, obj, "default-sa")
 

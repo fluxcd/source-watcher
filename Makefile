@@ -27,6 +27,7 @@ ENVTEST_ARCH ?= $(LOCALARCH)
 
 # API generation utilities
 CONTROLLER_GEN_VERSION ?= v0.21.0
+GOPLS_VERSION ?= v0.24.0
 
 # Download source-controller CRDs
 SOURCE_VER ?= $(shell go list -m all | grep github.com/fluxcd/source-controller/api | awk '{print $$2}')
@@ -44,7 +45,7 @@ all: manager
 
 # Run tests
 KUBEBUILDER_ASSETS?="$(shell $(ENVTEST) --arch=$(ENVTEST_ARCH) use -i $(ENVTEST_KUBERNETES_VERSION) --bin-dir=$(ENVTEST_ASSETS_DIR) -p path)"
-test: tidy generate fmt vet manifests install-envtest download-crd-deps
+test: tidy generate fix fmt vet unused manifests install-envtest download-crd-deps
 	KUBEBUILDER_ASSETS=$(KUBEBUILDER_ASSETS) go test ./... $(GO_TEST_ARGS) -coverprofile cover.out
 
 # Build manager binary
@@ -115,6 +116,17 @@ tidy:
 	cd api; rm -f go.sum; go mod tidy -compat=1.27
 	rm -f go.sum; go mod tidy -compat=1.27
 
+# Run go fix against code until it makes no changes
+.PHONY: fix
+fix:
+	@set -e; while :; do \
+		before=$$(git diff --no-ext-diff --no-color HEAD -- '*.go' | cksum); \
+		go fix ./...; \
+		( cd api && go fix ./... ); \
+		after=$$(git diff --no-ext-diff --no-color HEAD -- '*.go' | cksum); \
+		if [ "$$before" = "$$after" ]; then break; fi; \
+	done
+
 # Run go fmt against code
 fmt:
 	go fmt ./...
@@ -122,6 +134,14 @@ fmt:
 # Run go vet against code
 vet:
 	go vet ./...
+
+# Check for unused code and parameters
+unused: gopls
+	@out=$$($(GOPLS) check -severity=info $$(git ls-files '*.go') | grep -E 'unused parameter:| is unused$$' || true); \
+	if [ -n "$$out" ]; then \
+		printf '%s\n' "$$out"; \
+		exit 1; \
+	fi
 
 # Generate code
 generate: generate-api generate-json-schemas
@@ -161,6 +181,12 @@ manifests-release:
 	cd config/release-tmp && kustomize edit set image fluxcd/source-watcher=${IMG}
 	kustomize build config/release-tmp > ./build/source-watcher.deployment.yaml
 	rm -rf config/release-tmp
+
+# Find or download gopls
+GOPLS = $(shell pwd)/bin/gopls
+.PHONY: gopls
+gopls: ## Download gopls locally if necessary.
+	$(call go-install-tool,$(GOPLS),golang.org/x/tools/gopls@$(GOPLS_VERSION))
 
 # Find or download controller-gen
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
