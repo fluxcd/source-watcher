@@ -15,11 +15,11 @@ require (
 	github.com/fluxcd/pkg/artifact v0.28.0
 	github.com/fluxcd/pkg/http/fetch v0.31.0
 	github.com/fluxcd/pkg/runtime v0.122.0
-	github.com/fluxcd/pkg/spiffe v0.2.0
+	github.com/fluxcd/pkg/spiffe v0.4.0
 	github.com/fluxcd/pkg/ssa v0.83.0
 	github.com/fluxcd/pkg/tar v1.4.0
 	github.com/fluxcd/pkg/testserver v0.15.0
-	github.com/fluxcd/source-controller/api v1.10.0
+	github.com/fluxcd/source-controller/api v1.10.1
 	github.com/fluxcd/source-watcher/api/v2 v2.3.0
 	github.com/onsi/gomega v1.44.0
 	github.com/opencontainers/go-digest v1.0.0
@@ -54,7 +54,7 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/fluxcd/cli-utils v1.4.0 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.12.0 // indirect
-	github.com/fluxcd/pkg/apis/crypto v0.5.0 // indirect
+	github.com/fluxcd/pkg/apis/crypto v0.7.0 // indirect
 	github.com/fluxcd/pkg/apis/kustomize v1.23.0 // indirect
 	github.com/fluxcd/pkg/lockedfile v0.9.0 // indirect
 	github.com/fluxcd/pkg/oci v0.73.0 // indirect
