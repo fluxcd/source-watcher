@@ -72,10 +72,7 @@ func TestLoadExportedInputs(t *testing.T) {
 
 	t.Run("exports inputs", func(t *testing.T) {
 		g := NewWithT(t)
-		inputs, err := r.loadExportedInputs(context.Background(), &swapi.OutputArtifact{
-			Name:       "test",
-			InputsFrom: "@repo/inputs.yaml",
-		}, sources, "")
+		inputs, err := r.loadExportedInputs(&swapi.OutputArtifact{Name: "test", InputsFrom: "@repo/inputs.yaml"}, sources, "")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(inputs).To(HaveKey("replicas"))
 		g.Expect(inputs).To(HaveKey("name"))
@@ -85,10 +82,7 @@ func TestLoadExportedInputs(t *testing.T) {
 
 	t.Run("missing file", func(t *testing.T) {
 		g := NewWithT(t)
-		_, err := r.loadExportedInputs(context.Background(), &swapi.OutputArtifact{
-			Name:       "test",
-			InputsFrom: "@repo/missing.yaml",
-		}, sources, "")
+		_, err := r.loadExportedInputs(&swapi.OutputArtifact{Name: "test", InputsFrom: "@repo/missing.yaml"}, sources, "")
 		g.Expect(err).To(HaveOccurred())
 	})
 }

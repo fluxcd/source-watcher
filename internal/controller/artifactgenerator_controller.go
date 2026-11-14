@@ -353,7 +353,7 @@ func (r *ArtifactGeneratorReconciler) reconcile(ctx context.Context,
 		// Load and parse the exported inputs. The staging directory is
 		// namespaced to match the artifact builder.
 		artifactDir := filepath.Join(tmpDir, namespace, oa.Name)
-		exportedInputs, err := r.loadExportedInputs(ctx, &oa, localSources, artifactDir)
+		exportedInputs, err := r.loadExportedInputs(&oa, localSources, artifactDir)
 		if err != nil {
 			msg := fmt.Sprintf("%s inputs failed: %s", oa.Name, err.Error())
 			gotkconditions.MarkFalse(obj,
